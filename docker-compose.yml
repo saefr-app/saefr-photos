@@ -1,0 +1,81 @@
+services:
+  # 1/4 — NestJS HTTP server AND the BullMQ consumer, in one process.
+  api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_DATABASE: ${DB_DATABASE}
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ML_SERVICE_URL: http://ml-service:8000
+      UPLOADS_DIR: /app/uploads
+    ports:
+      # Published directly to the host: no domain and no reverse proxy yet.
+      - "3000:3000"
+    volumes:
+      - uploads:/app/uploads
+    networks:
+      - edge
+      - internal
+    depends_on:
+      postgres:
+        # service_healthy, not a plain depends_on — plain depends_on only waits
+        # for the container to start, not for the database to accept connections.
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 2/4 — FastAPI stub. No host port; internal network only.
+  ml-service:
+    build: ./ml-service
+    restart: unless-stopped
+    networks:
+      - internal
+
+  # 3/4 — BullMQ backing store.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 4/4 — primary database.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  # Only api sits here, plus the host port mapping standing in for the reverse
+  # proxy that will front it later.
+  edge:
+  # internal: true means no route out of Docker at all — ml-service, redis and
+  # postgres are unreachable from the host.
+  internal:
+    internal: true
+
+volumes:
+  uploads:
+  pgdata:

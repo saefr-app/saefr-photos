@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Saefr Photos</title>
+<style>
+  :root {
+    --bg: #fbfbfa;
+    --surface: #ffffff;
+    --border: #e4e4e1;
+    --text: #1c1c1a;
+    --muted: #6b6b66;
+    --accent: #2f6f4e;
+    --accent-soft: #eaf2ed;
+    --danger: #a4342a;
+    --danger-soft: #fbeceb;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181a;
+      --surface: #1f2023;
+      --border: #303237;
+      --text: #eceded;
+      --muted: #9a9c9f;
+      --accent: #6cc295;
+      --accent-soft: #1e2f27;
+      --danger: #e88b81;
+      --danger-soft: #33211f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  h1 { font-size: 21px; margin: 0; letter-spacing: -0.01em; }
+  .tag {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); border: 1px solid var(--border);
+    padding: 2px 7px; border-radius: 20px;
+  }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 28px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px; margin-bottom: 20px;
+  }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em;
+       color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+  input[type=email], input[type=password] {
+    width: 100%; padding: 9px 11px; font-size: 14px; font-family: inherit;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: var(--bg); color: var(--text);
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 200px; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+
+  button {
+    font: inherit; font-size: 14px; padding: 8px 15px; border-radius: 7px;
+    border: 1px solid var(--accent); background: var(--accent); color: #fff;
+    cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--text); border-color: var(--border); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+
+  #drop {
+    border: 1.5px dashed var(--border); border-radius: var(--radius);
+    padding: 34px 20px; text-align: center; cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  #drop strong { display: block; font-size: 15px; margin-bottom: 3px; }
+  #drop span { color: var(--muted); font-size: 13px; }
+
+  .grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  }
+  .asset {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; background: var(--bg);
+  }
+  .thumb {
+    aspect-ratio: 4 / 3; width: 100%; object-fit: cover; display: block;
+    background: var(--border);
+  }
+  .thumb.none {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 12px;
+  }
+  .meta { padding: 9px 11px; }
+  .name {
+    font-size: 13px; font-weight: 500; margin-bottom: 3px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .info { font-size: 11.5px; color: var(--muted); display: flex;
+          justify-content: space-between; gap: 8px; align-items: center; }
+  .badge {
+    font-size: 10.5px; padding: 1px 7px; border-radius: 20px;
+    border: 1px solid var(--border); text-transform: lowercase;
+  }
+  .badge.done { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .badge.processing, .badge.uploaded { color: var(--muted); }
+
+  .queue-item { font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .queue-item:last-child { border-bottom: none; }
+  .bar { height: 3px; background: var(--border); border-radius: 3px; margin-top: 5px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width 0.15s; }
+
+  .msg { padding: 10px 13px; border-radius: 7px; font-size: 13.5px; margin-bottom: 16px; }
+  .msg.error { background: var(--danger-soft); color: var(--danger); }
+  .msg.ok { background: var(--accent-soft); color: var(--accent); }
+  .empty { color: var(--muted); font-size: 13.5px; text-align: center; padding: 26px 0; }
+  .who { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Saefr Photos</h1>
+    <span class="tag">MVP</span>
+    <span class="who" id="who"></span>
+  </header>
+  <p class="sub">Self-hosted photo backup — upload test harness.</p>
+
+  <div id="msg"></div>
+
+  <!-- Auth -->
+  <section class="card" id="authCard">
+    <h2>Account</h2>
+    <div class="row">
+      <div>
+        <label for="email">Email</label>
+        <input type="email" id="email" autocomplete="username" placeholder="you@saefr.com" />
+      </div>
+      <div>
+        <label for="password">Password</label>
+        <input type="password" id="password" autocomplete="current-password" placeholder="at least 8 characters" />
+      </div>
+    </div>
+    <div class="actions">
+      <button id="loginBtn">Log in</button>
+      <button id="signupBtn" class="ghost">Sign up</button>
+    </div>
+  </section>
+
+  <!-- Upload -->
+  <section class="card hidden" id="uploadCard">
+    <h2>Upload</h2>
+    <div id="drop">
+      <strong>Drop photos here</strong>
+      <span>or click to choose files — up to 25 MB each</span>
+    </div>
+    <input type="file" id="picker" multiple accept="image/*,video/*" class="hidden" />
+    <div id="queue"></div>
+  </section>
+
+  <!-- Library -->
+  <section class="card hidden" id="libraryCard">
+    <h2>Library <span id="count" style="text-transform:none;letter-spacing:0"></span></h2>
+    <div class="grid" id="grid"></div>
+    <div class="empty hidden" id="empty">Nothing uploaded yet.</div>
+  </section>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var MAX_BYTES = 25 * 1024 * 1024;
+  var token = localStorage.getItem('saefr_token');
+  var email = localStorage.getItem('saefr_email');
+  var pollTimer = null;
+  var thumbCache = {};        // assetId -> object URL, so we fetch each image once
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function say(text, kind) {
+    $('msg').innerHTML = text
+      ? '<div class="msg ' + (kind || 'ok') + '">' + escapeHtml(text) + '</div>'
+      : '';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function humanSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  }
+
+  // --- auth -----------------------------------------------------------------
+
+  function authenticate(path) {
+    var body = { email: $('email').value.trim(), password: $('password').value };
+    if (!body.email || !body.password) { return say('Email and password are required.', 'error'); }
+
+    fetch('/auth/' + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) { throw new Error([].concat(res.d.message).join(', ')); }
+        token = res.d.accessToken;
+        email = body.email;
+        localStorage.setItem('saefr_token', token);
+        localStorage.setItem('saefr_email', email);
+        $('password').value = '';
+        say('');
+        showLoggedIn();
+        refresh();
+      })
+      .catch(function (e) { say(e.message, 'error'); });
+  }
+
+  function logout() {
+    token = null;
+    localStorage.removeItem('saefr_token');
+    localStorage.removeItem('saefr_email');
+    Object.keys(thumbCache).forEach(function (k) { URL.revokeObjectURL(thumbCache[k]); });
+    thumbCache = {};
+    clearInterval(pollTimer);
+    location.reload();
+  }
+
+  function showLoggedIn() {
+    $('authCard').classList.add('hidden');
+    $('uploadCard').classList.remove('hidden');
+    $('libraryCard').classList.remove('hidden');
+    $('who').innerHTML = escapeHtml(email) +
+      ' · <a href="#" id="out" style="color:inherit">log out</a>';
+    $('out').onclick = function (e) { e.preventDefault(); logout(); };
+  }
+
+  // --- upload ---------------------------------------------------------------
+
+  function upload(file) {
+    var item = document.createElement('div');
+    item.className = 'queue-item';
+    item.innerHTML = '<div>' + escapeHtml(file.name) + ' — <span class="s">waiting</span></div>' +
+                     '<div class="bar"><i></i></div>';
+    $('queue').appendChild(item);
+    var status = item.querySelector('.s');
+    var bar = item.querySelector('.bar i');
+
+    if (file.size > MAX_BYTES) {
+      status.textContent = 'too large (' + humanSize(file.size) + ', limit 25 MB)';
+      item.style.color = 'var(--danger)';
+      return;
+    }
+
+    var form = new FormData();
+    form.append('file', file);
+
+    // XHR rather than fetch — fetch gives no upload progress events.
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/assets/upload');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+
+    xhr.upload.onprogress = function (e) {
+      if (e.lengthComputable) {
+        var pct = (e.loaded / e.total) * 100;
+        bar.style.width = pct + '%';
+        status.textContent = pct < 100 ? Math.round(pct) + '%' : 'saving…';
+      }
+    };
+
+    xhr.onload = function () {
+      if (xhr.status === 201 || xhr.status === 200) {
+        status.textContent = 'uploaded';
+        bar.style.width = '100%';
+        setTimeout(function () { item.remove(); }, 1800);
+        refresh();
+      } else if (xhr.status === 401) {
+        status.textContent = 'session expired — log in again';
+        item.style.color = 'var(--danger)';
+      } else if (xhr.status === 413) {
+        status.textContent = 'rejected: over the 25 MB limit';
+        item.style.color = 'var(--danger)';
+      } else {
+        status.textContent = 'failed (HTTP ' + xhr.status + ')';
+        item.style.color = 'var(--danger)';
+      }
+    };
+
+    xhr.onerror = function () {
+      status.textContent = 'network error';
+      item.style.color = 'var(--danger)';
+    };
+
+    xhr.send(form);
+  }
+
+  function handleFiles(files) {
+    for (var i = 0; i < files.length; i++) { upload(files[i]); }
+  }
+
+  // --- library --------------------------------------------------------------
+
+  function refresh() {
+    if (!token) return;
+
+    fetch('/assets', { headers: { Authorization: 'Bearer ' + token } })
+      .then(function (r) {
+        if (r.status === 401) { throw new Error('Session expired — please log in again.'); }
+        return r.json();
+      })
+      .then(render)
+      .catch(function (e) { say(e.message, 'error'); });
+  }
+
+  function render(assets) {
+    $('count').textContent = assets.length ? '(' + assets.length + ')' : '';
+    $('empty').classList.toggle('hidden', assets.length > 0);
+
+    $('grid').innerHTML = assets.map(function (a) {
+      return '<div class="asset" data-id="' + a.id + '">' +
+        '<div class="thumb none" data-thumb="' + a.id + '">…</div>' +
+        '<div class="meta">' +
+          '<div class="name" title="' + escapeHtml(a.originalFilename) + '">' +
+            escapeHtml(a.originalFilename) + '</div>' +
+          '<div class="info"><span>' + humanSize(a.sizeBytes) + '</span>' +
+          '<span class="badge ' + a.status + '">' + a.status + '</span></div>' +
+        '</div></div>';
+    }).join('');
+
+    assets.forEach(function (a) {
+      if (a.mimeType.indexOf('image/') === 0) { loadThumb(a); }
+      else { setPlaceholder(a, a.mimeType.split('/')[0] || 'file'); }
+    });
+
+    // Keep polling only while something is still working its way through the queue.
+    var pending = assets.some(function (a) { return a.status !== 'done'; });
+    clearInterval(pollTimer);
+    if (pending) { pollTimer = setInterval(refresh, 1500); }
+  }
+
+  function setPlaceholder(asset, text) {
+    var slot = document.querySelector('[data-thumb="' + asset.id + '"]');
+    if (slot) { slot.textContent = text; }
+  }
+
+  // <img src> can't carry an Authorization header, so fetch the bytes and swap
+  // in an object URL instead. Cached so re-renders during polling don't refetch.
+  function loadThumb(asset) {
+    var slot = document.querySelector('[data-thumb="' + asset.id + '"]');
+    if (!slot) return;
+
+    function show(url) {
+      // No loading="lazy" here: the blob is already fully in memory by this
+      // point, so laziness saves nothing and only delays the decode. The real
+      // win would be not fetching full-resolution files for a grid at all —
+      // that needs server-side thumbnails, which is a later milestone.
+      var img = new Image();
+      img.className = 'thumb';
+      img.alt = asset.originalFilename;
+      img.src = url;
+      slot.replaceWith(img);
+    }
+
+    if (thumbCache[asset.id]) { return show(thumbCache[asset.id]); }
+
+    fetch('/assets/' + asset.id + '/file', { headers: { Authorization: 'Bearer ' + token } })
+      .then(function (r) { if (!r.ok) throw new Error('thumb'); return r.blob(); })
+      .then(function (blob) {
+        thumbCache[asset.id] = URL.createObjectURL(blob);
+        show(thumbCache[asset.id]);
+      })
+      .catch(function () { setPlaceholder(asset, 'unavailable'); });
+  }
+
+  // --- wiring ---------------------------------------------------------------
+
+  $('loginBtn').onclick = function () { authenticate('login'); };
+  $('signupBtn').onclick = function () { authenticate('signup'); };
+  $('password').onkeydown = function (e) { if (e.key === 'Enter') authenticate('login'); };
+
+  $('drop').onclick = function () { $('picker').click(); };
+  $('picker').onchange = function (e) { handleFiles(e.target.files); e.target.value = ''; };
+
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    $('drop').addEventListener(ev, function (e) {
+      e.preventDefault(); $('drop').classList.add('over');
+    });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    $('drop').addEventListener(ev, function (e) {
+      e.preventDefault(); $('drop').classList.remove('over');
+    });
+  });
+  $('drop').addEventListener('drop', function (e) {
+    if (e.dataTransfer && e.dataTransfer.files) { handleFiles(e.dataTransfer.files); }
+  });
+
+  if (token) { showLoggedIn(); refresh(); }
+})();
+</script>
+</body>
+</html>
