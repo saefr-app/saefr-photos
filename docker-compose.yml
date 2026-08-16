@@ -18,7 +18,14 @@ services:
       # Published directly to the host: no domain and no reverse proxy yet.
       - "3000:3000"
     volumes:
-      - uploads:/app/uploads
+      # Originals live on the host filesystem, in a real folder the user picks
+      # (UPLOADS_PATH in .env) — this is the point of a self-hosted photo app:
+      # your files stay browsable on your own disk, not sealed inside a Docker
+      # volume. Long-form syntax on purpose: a Windows path like "D:/Saefr
+      # Photos" contains a colon, which the short "src:dst" form mis-splits.
+      - type: bind
+        source: ${UPLOADS_PATH:-./uploads}
+        target: /app/uploads
     networks:
       - edge
       - internal
@@ -77,5 +84,5 @@ networks:
     internal: true
 
 volumes:
-  uploads:
+  # No named volume for uploads any more — see the bind mount on `api`.
   pgdata:

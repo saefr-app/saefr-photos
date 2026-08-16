@@ -1,113 +1,237 @@
-# Saefr Photos — MVP milestone 1
+# saefr-photos
 
-Self-hosted, AI-powered photo and video backup. This milestone proves one loop
-end to end: **sign up → log in → upload a real file → file on disk + row in
-Postgres → background job runs → status flips to `done`.** The ML work itself is
-a stub; everything around it is real.
+Backend API and processing pipeline. Runs entirely in Docker: NestJS API,
+FastAPI ML service, PostgreSQL, and Redis.
 
-## Container topology (exactly 4)
+## Requirements
 
-| Container    | Role                                                        | Networks         |
-| ------------ | ----------------------------------------------------------- | ---------------- |
-| `api`        | NestJS HTTP server **and** the BullMQ consumer, one process | `edge`, `internal` |
-| `ml-service` | FastAPI stub (`/health`, `/analyze`)                        | `internal` only  |
-| `redis`      | BullMQ backing store                                        | `internal` only  |
-| `postgres`   | Primary database                                            | `internal` only  |
+- **Docker Desktop** (or Docker Engine + Compose v2) — the only thing you need
+  installed. Node and Python run inside containers; nothing is installed on the
+  host.
+- A drive with room for your photo library.
 
-`internal` is declared `internal: true`, so nothing but `api` is reachable from
-outside Docker. `api` publishes `3000:3000` because there is no reverse proxy
-or domain yet.
+## First-time setup
 
-## Data model
-
-Assets belong to a **Library**, never to a user. `Asset` has no `userId`
-column — users hold a role in a library via `LibraryMembership`
-(`owner` / `contributor` / `viewer`), and that table is the only authorisation
-point. Every user gets a personal library auto-created inside `AuthService.signup`.
-
-This is the deliberate departure from Immich's user-owned-asset model, which
-causes duplicate ML processing per viewer on shared photos and blocks
-cross-user face matching.
-
-## Running it
+**1. Create your `.env`**
 
 ```bash
-cp .env.example .env      # then set a real JWT_SECRET: openssl rand -base64 32
+cp .env.example .env
+```
+
+**2. Generate a real `JWT_SECRET`**
+
+```bash
+openssl rand -base64 32
+```
+
+Paste the output into `JWT_SECRET` in `.env`. Never leave the placeholder — it
+signs every login token.
+
+**3. Set `DB_PASSWORD`** in `.env` to anything random. It's only used between
+the `api` and `postgres` containers, which sit on a network with no route out
+of Docker, so you never type it again.
+
+**4. Point `UPLOADS_PATH` at the folder where your originals should live.**
+Use forward slashes, even on Windows:
+
+```
+UPLOADS_PATH=D:/Saefr Photos
+```
+
+This is per-machine — every developer sets their own. It's the library itself,
+so put it on a drive with space and include it in your backups.
+
+## Running
+
+Start everything (first run builds the images, takes a few minutes):
+
+```bash
 docker compose up --build
 ```
 
-Then open **http://localhost:3000** — the `api` container serves a static upload
-page on the same port as the API. Sign up, drag photos in, watch each one go
-`uploaded → processing → done` in the grid.
+Or in the background:
 
-## Endpoints
+```bash
+docker compose up -d --build
+```
 
-| Method | Path                 | Notes                                       |
-| ------ | -------------------- | ------------------------------------------- |
-| POST   | `/auth/signup`       | Creates user + personal library, returns JWT |
-| POST   | `/auth/login`        | Returns JWT                                  |
-| GET    | `/auth/me`           | Auth-guarded identity check                  |
-| POST   | `/assets/upload`     | `multipart/form-data`, field `file`, 25MB cap |
-| GET    | `/assets`            | Everything in the caller's libraries         |
-| GET    | `/assets/:id`        | One asset's metadata                         |
-| GET    | `/assets/:id/file`   | The stored bytes                             |
+Then open **http://localhost:3000** — the API serves an upload page on the same
+port. Sign up, drag photos in, and watch each one move from `uploaded` to
+`processing` to `done`.
 
-Everything under `/assets` is membership-checked; a caller without a
-`LibraryMembership` for the asset's library gets 404, never 403.
+After the first build, plain `docker compose up -d` is enough. You only need
+`--build` again when source code, `package.json`, or a `Dockerfile` changes.
 
-## Verifying the loop
+## Everyday commands
+
+Check what's running — all four services up, `postgres` and `redis` healthy:
 
 ```bash
 docker compose ps
 ```
 
-All four services running; `postgres` and `redis` reporting healthy.
+Follow the API logs, including the background job worker:
 
 ```bash
-curl -X POST localhost:3000/auth/signup -H "Content-Type: application/json" -d '{"email":"test@saefr.com","password":"testpass123"}'
+docker compose logs -f api
 ```
+
+Stop everything, keeping all data:
+
+```bash
+docker compose down
+```
+
+Restart just the API after a code change:
+
+```bash
+docker compose up -d --build api
+```
+
+Open a shell inside the API container:
+
+```bash
+docker compose exec api sh
+```
+
+Open a psql prompt:
+
+```bash
+docker compose exec postgres psql -U saefr -d saefr_photos
+```
+
+Wipe the database and start clean. **This deletes every user and asset row.**
+Your photo files at `UPLOADS_PATH` survive, which means they'll be orphaned —
+delete that folder too if you want a genuine reset:
+
+```bash
+docker compose down -v
+```
+
+## Verifying it works
+
+```bash
+curl -X POST localhost:3000/auth/signup -H "Content-Type: application/json" -d "{\"email\":\"test@example.com\",\"password\":\"testpass123\"}"
+```
+
+Returns `{ "accessToken": "..." }`. Use that token for everything below.
 
 ```bash
 curl localhost:3000/auth/me -H "Authorization: Bearer <token>"
 ```
 
 ```bash
-curl -X POST localhost:3000/assets/upload -H "Authorization: Bearer <token>" -F "file=@/path/to/some/photo.jpg"
+curl -X POST localhost:3000/assets/upload -H "Authorization: Bearer <token>" -F "file=@/path/to/photo.jpg"
 ```
 
-Returns the asset row with `status: "uploaded"`.
-
-```bash
-docker compose logs api
-```
-
-Should show the processor picking the job up and logging the `ml-service` response.
+Returns the asset row with `status: "uploaded"`. Within a second or two:
 
 ```bash
 curl localhost:3000/assets/<id> -H "Authorization: Bearer <token>"
 ```
 
-`status: "done"` here, plus the file actually present in the volume, is the
-milestone:
+`status: "done"` means the job ran and the ML service answered. Confirm the
+file physically exists by looking in your `UPLOADS_PATH` folder.
 
-```bash
-docker compose exec api ls -R /app/uploads
+## Endpoints
+
+| Method | Path               | Notes                                         |
+| ------ | ------------------ | --------------------------------------------- |
+| POST   | `/auth/signup`     | Creates user + personal library, returns JWT   |
+| POST   | `/auth/login`      | Returns JWT                                    |
+| GET    | `/auth/me`         | Auth-guarded identity check                    |
+| POST   | `/assets/upload`   | `multipart/form-data`, field `file`, 25MB cap  |
+| GET    | `/assets`          | Everything in the caller's libraries           |
+| GET    | `/assets/:id`      | One asset's metadata                           |
+| GET    | `/assets/:id/file` | The stored bytes                               |
+
+All `/assets` routes require `Authorization: Bearer <token>`. Access is checked
+against library membership; a caller without membership gets 404 rather than
+403, so the endpoint never confirms an asset exists to someone who can't see it.
+
+## Services
+
+| Container    | Role                                                      | Exposed         |
+| ------------ | --------------------------------------------------------- | --------------- |
+| `api`        | NestJS HTTP server and the BullMQ job consumer, one process | `localhost:3000` |
+| `ml-service` | FastAPI service (`/health`, `/analyze`) — stub for now     | internal only   |
+| `redis`      | Job queue backing store                                    | internal only   |
+| `postgres`   | Database                                                   | internal only   |
+
+Only `api` is reachable from the host. The other three sit on a Docker network
+declared `internal: true`, so nothing outside Docker can connect to them — you
+reach them through `docker compose exec`.
+
+## Storage
+
+Originals are written to the host filesystem at `UPLOADS_PATH`:
+
+```
+<UPLOADS_PATH>/<libraryId>/<uuid>-<sanitised-filename>
 ```
 
-## Known-and-deliberate for this pass
+Postgres stores **only metadata** — filename, MIME type, size, SHA-1 checksum,
+status, and the `storageKey` pointing at the file. No image bytes are ever put
+in the database. One directory per library keeps each library independently
+backup-able and stops any single directory growing without bound.
 
-- `synchronize: true` in TypeORM — tables auto-created from entities. Temporary,
-  must become migrations before production.
-- Checksums are captured but **not** enforced; dedup is one lookup away
-  (commented in `AssetsService.upload`).
-- Multer buffers uploads in memory; the 25MB cap is the guardrail until
-  streaming uploads land.
-- JWT is 24h with no refresh rotation and no password reset.
-- Jobs have no retry/backoff policy yet.
-- `ml-service` loads no models — but all loading is already behind
-  `load_models()`, so `select_model(hardware_profile)` slots in later without
-  restructuring.
-- The upload page is a single static HTML file, not a frontend app. The grid
-  downloads full-resolution files as thumbnails because server-side thumbnail
-  generation doesn't exist yet, and `GET /assets` is capped at 200 rows with no
-  pagination. Both are fine at test scale and wrong at real scale.
+`originalFilename` in the database preserves the true filename for display;
+only the on-disk name is sanitised.
+
+## Data model
+
+Assets belong to a **Library**, not to a user — there is no `userId` column on
+`Asset`. Users hold a role in a library through `LibraryMembership`
+(`owner` / `contributor` / `viewer`), and that table is the only authorisation
+check in the system. Each user gets a personal library created automatically
+during signup.
+
+## Project layout
+
+```
+api/                     NestJS service
+  src/auth/              signup, login, JWT strategy and guard
+  src/assets/            upload, listing, file serving
+  src/entities/          User, Library, LibraryMembership, Asset
+  src/queue/             BullMQ connection and queue registration
+  src/processing/        the job consumer
+  public/index.html      upload page
+ml-service/              FastAPI service
+docker-compose.yml       the four services, networks and volumes
+```
+
+## Troubleshooting
+
+**Port 3000 already in use** — something else is on that port. Find it with
+`netstat -ano | findstr :3000` on Windows, then either stop it or change the
+published port in `docker-compose.yml`.
+
+**`api` exits immediately on startup** — usually a missing or malformed `.env`.
+Check `docker compose logs api`; a `JWT_SECRET` that's empty is the most common
+cause.
+
+**Uploads return 401** — the token expired. They last 24 hours; log in again.
+
+**Uploads return 413** — the file is over the 25MB cap, set in
+`assets.controller.ts`.
+
+**Changed `DB_PASSWORD` and now `api` can't connect** — Postgres only applies
+that password when it first initialises its data directory. Run
+`docker compose down -v` to recreate it.
+
+## Current limitations
+
+- `synchronize: true` in TypeORM auto-creates tables from the entity classes.
+  Convenient for development; must be replaced with migrations before this runs
+  anywhere real, since it can drop columns.
+- Checksums are recorded but not enforced, so uploading the same file twice
+  produces two rows and two files.
+- Uploads are buffered in memory by Multer; the 25MB cap is the guardrail until
+  streaming uploads are implemented.
+- JWTs last 24 hours with no refresh rotation and no password reset.
+- Jobs have no retry or backoff policy.
+- `ml-service` returns a canned response and loads no models.
+- No EXIF extraction — dimensions, date taken, GPS and orientation are not read.
+- The upload page fetches full-resolution images for its grid, since thumbnail
+  generation doesn't exist yet, and `GET /assets` returns at most 200 rows with
+  no pagination.
