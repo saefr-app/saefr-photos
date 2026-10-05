@@ -1,0 +1,18 @@
+services:
+  database:
+    image: postgres:18
+    container_name: saefr-photos-db
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - saefr_photos_db_data:/var/lib/postgresql
+
+volumes:
+  saefr_photos_db_data:
