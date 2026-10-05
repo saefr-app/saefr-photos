@@ -1,6 +1,8 @@
-from uuid import uuid4
+from pathlib import Path
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
 from app.database.database import get_session
@@ -49,7 +51,10 @@ async def upload_asset(
     asset_id = uuid4()
 
     extension = ALLOWED_IMAGE_TYPES[file.content_type]
-    storage_path = get_asset_storage_path(asset_id, extension)
+    storage_path = get_asset_storage_path(
+        asset_id,
+        extension,
+    )
 
     file_bytes = await file.read()
 
@@ -68,3 +73,33 @@ async def upload_asset(
     session.refresh(asset)
 
     return asset
+
+
+@router.get("/{asset_id}/original")
+def get_original_asset(
+    asset_id: UUID,
+    session: Session = Depends(get_session),
+):
+    asset = session.get(
+        Asset,
+        asset_id,
+    )
+
+    if asset is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Asset not found",
+        )
+
+    file_path = Path(asset.storage_path)
+
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Asset file not found",
+        )
+
+    return FileResponse(
+        path=file_path,
+        media_type=asset.mime_type,
+    )
