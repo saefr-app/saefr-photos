@@ -4,17 +4,21 @@ from uuid import UUID, uuid4
 from sqlmodel import Field, SQLModel
 
 
-class Asset(SQLModel, table=True):
+class AssetBase(SQLModel):
+    filename: str
+    mime_type: str
+    size: int
+
+
+class AssetCreate(AssetBase):
+    pass
+
+
+class Asset(AssetBase, table=True):
     id: UUID = Field(
         default_factory=uuid4,
         primary_key=True,
     )
-
-    filename: str
-
-    mime_type: str
-
-    size: int
 
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)

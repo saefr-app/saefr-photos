@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from app.database.database import get_session
-from app.models.asset import Asset
+from app.models.asset import Asset, AssetCreate
 
 
 router = APIRouter(
@@ -12,7 +12,9 @@ router = APIRouter(
 
 
 @router.get("/", response_model=list[Asset])
-def list_assets(session: Session = Depends(get_session)):
+def list_assets(
+    session: Session = Depends(get_session),
+):
     statement = select(Asset)
     assets = session.exec(statement).all()
 
@@ -25,9 +27,11 @@ def list_assets(session: Session = Depends(get_session)):
     status_code=201,
 )
 def create_asset(
-    asset: Asset,
+    asset_data: AssetCreate,
     session: Session = Depends(get_session),
 ):
+    asset = Asset.model_validate(asset_data)
+
     session.add(asset)
     session.commit()
     session.refresh(asset)
