@@ -20,6 +20,8 @@ class Asset(AssetBase, table=True):
         primary_key=True,
     )
 
+    storage_path: str
+
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

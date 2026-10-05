@@ -15,3 +15,6 @@ server/.venv/
 
 # OS
 .DS_Store
+
+storage/originals/*
+!storage/originals/.gitkeep
