@@ -28,6 +28,17 @@ def list_assets(
     return get_assets(session)
 
 
+@router.get("/{asset_id}", response_model=Asset)
+def get_asset_metadata(
+    asset_id: UUID,
+    session: Session = Depends(get_session),
+):
+    return get_asset(
+        session,
+        asset_id,
+    )
+
+
 @router.post(
     "/upload",
     response_model=Asset,
