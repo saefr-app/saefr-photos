@@ -23,3 +23,6 @@ storage/originals/*
 # Generated thumbnails
 storage/thumbnails/*
 !storage/thumbnails/.gitkeep
+
+# Local development scripts
+scripts/
