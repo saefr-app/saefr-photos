@@ -1,18 +1,17 @@
-from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, UploadFile
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
 from app.database.database import get_session
 from app.models.asset import Asset
-from app.repositories.asset_repository import (
-    create_asset,
-    get_asset_by_id,
-    list_assets,
+from app.services.asset_service import (
+    get_asset,
+    get_assets,
+    get_original_file_path,
+    upload_asset_file,
 )
-from app.storage.local import get_asset_storage_path
 
 
 router = APIRouter(
@@ -21,18 +20,11 @@ router = APIRouter(
 )
 
 
-ALLOWED_IMAGE_TYPES = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-}
-
-
 @router.get("/", response_model=list[Asset])
-def get_assets(
+def list_assets(
     session: Session = Depends(get_session),
 ):
-    return list_assets(session)
+    return get_assets(session)
 
 
 @router.post(
@@ -44,35 +36,9 @@ async def upload_asset(
     file: UploadFile,
     session: Session = Depends(get_session),
 ):
-    if file.content_type not in ALLOWED_IMAGE_TYPES:
-        raise HTTPException(
-            status_code=415,
-            detail="Unsupported image type",
-        )
-
-    asset_id = uuid4()
-
-    extension = ALLOWED_IMAGE_TYPES[file.content_type]
-    storage_path = get_asset_storage_path(
-        asset_id,
-        extension,
-    )
-
-    file_bytes = await file.read()
-
-    storage_path.write_bytes(file_bytes)
-
-    asset = Asset(
-        id=asset_id,
-        filename=file.filename or f"{asset_id}{extension}",
-        mime_type=file.content_type,
-        size=len(file_bytes),
-        storage_path=str(storage_path),
-    )
-
-    return create_asset(
+    return await upload_asset_file(
+        file,
         session,
-        asset,
     )
 
 
@@ -81,24 +47,12 @@ def get_original_asset(
     asset_id: UUID,
     session: Session = Depends(get_session),
 ):
-    asset = get_asset_by_id(
+    asset = get_asset(
         session,
         asset_id,
     )
 
-    if asset is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Asset not found",
-        )
-
-    file_path = Path(asset.storage_path)
-
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="Asset file not found",
-        )
+    file_path = get_original_file_path(asset)
 
     return FileResponse(
         path=file_path,
