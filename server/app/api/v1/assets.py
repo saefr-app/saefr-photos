@@ -3,10 +3,15 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.database.database import get_session
 from app.models.asset import Asset
+from app.repositories.asset_repository import (
+    create_asset,
+    get_asset_by_id,
+    list_assets,
+)
 from app.storage.local import get_asset_storage_path
 
 
@@ -24,13 +29,10 @@ ALLOWED_IMAGE_TYPES = {
 
 
 @router.get("/", response_model=list[Asset])
-def list_assets(
+def get_assets(
     session: Session = Depends(get_session),
 ):
-    statement = select(Asset)
-    assets = session.exec(statement).all()
-
-    return assets
+    return list_assets(session)
 
 
 @router.post(
@@ -68,11 +70,10 @@ async def upload_asset(
         storage_path=str(storage_path),
     )
 
-    session.add(asset)
-    session.commit()
-    session.refresh(asset)
-
-    return asset
+    return create_asset(
+        session,
+        asset,
+    )
 
 
 @router.get("/{asset_id}/original")
@@ -80,8 +81,8 @@ def get_original_asset(
     asset_id: UUID,
     session: Session = Depends(get_session),
 ):
-    asset = session.get(
-        Asset,
+    asset = get_asset_by_id(
+        session,
         asset_id,
     )
 
