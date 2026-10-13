@@ -2,6 +2,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, UploadFile
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlmodel import Session
 
 from app.models.asset import Asset
@@ -10,7 +11,10 @@ from app.repositories.asset_repository import (
     get_asset_by_id,
     list_assets,
 )
-from app.storage.local import get_asset_storage_path
+from app.storage.local import (
+    get_asset_storage_path,
+    get_thumbnail_storage_path,
+)
 
 
 ALLOWED_IMAGE_TYPES = {
@@ -18,6 +22,8 @@ ALLOWED_IMAGE_TYPES = {
     "image/png": ".png",
     "image/webp": ".webp",
 }
+
+THUMBNAIL_SIZE = (300, 300)
 
 
 def get_assets(session: Session) -> list[Asset]:
@@ -65,6 +71,21 @@ async def upload_asset_file(
 
     storage_path.write_bytes(file_bytes)
 
+    try:
+        generate_thumbnail(
+            asset_id,
+            storage_path,
+        )
+    except UnidentifiedImageError:
+        storage_path.unlink(
+            missing_ok=True,
+        )
+
+        raise HTTPException(
+            status_code=415,
+            detail="Uploaded file is not a valid image",
+        )
+
     asset = Asset(
         id=asset_id,
         filename=file.filename or f"{asset_id}{extension}",
@@ -79,7 +100,36 @@ async def upload_asset_file(
     )
 
 
-def get_original_file_path(asset: Asset) -> Path:
+def generate_thumbnail(
+    asset_id: UUID,
+    original_path: Path,
+) -> Path:
+    thumbnail_path = get_thumbnail_storage_path(
+        asset_id,
+    )
+
+    with Image.open(original_path) as image:
+        image = ImageOps.exif_transpose(image)
+
+        image.thumbnail(
+            THUMBNAIL_SIZE,
+        )
+
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+
+        image.save(
+            thumbnail_path,
+            format="JPEG",
+            quality=85,
+        )
+
+    return thumbnail_path
+
+
+def get_original_file_path(
+    asset: Asset,
+) -> Path:
     file_path = Path(asset.storage_path)
 
     if not file_path.exists():
@@ -89,3 +139,19 @@ def get_original_file_path(asset: Asset) -> Path:
         )
 
     return file_path
+
+
+def get_thumbnail_file_path(
+    asset: Asset,
+) -> Path:
+    thumbnail_path = get_thumbnail_storage_path(
+        asset.id,
+    )
+
+    if not thumbnail_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Asset thumbnail not found",
+        )
+
+    return thumbnail_path

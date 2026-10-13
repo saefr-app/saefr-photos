@@ -10,6 +10,7 @@ from app.services.asset_service import (
     get_asset,
     get_assets,
     get_original_file_path,
+    get_thumbnail_file_path,
     upload_asset_file,
 )
 
@@ -52,9 +53,31 @@ def get_original_asset(
         asset_id,
     )
 
-    file_path = get_original_file_path(asset)
+    file_path = get_original_file_path(
+        asset,
+    )
 
     return FileResponse(
         path=file_path,
         media_type=asset.mime_type,
+    )
+
+
+@router.get("/{asset_id}/thumbnail")
+def get_asset_thumbnail(
+    asset_id: UUID,
+    session: Session = Depends(get_session),
+):
+    asset = get_asset(
+        session,
+        asset_id,
+    )
+
+    thumbnail_path = get_thumbnail_file_path(
+        asset,
+    )
+
+    return FileResponse(
+        path=thumbnail_path,
+        media_type="image/jpeg",
     )

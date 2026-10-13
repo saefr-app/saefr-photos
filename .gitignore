@@ -16,5 +16,10 @@ server/.venv/
 # OS
 .DS_Store
 
+# Uploaded originals
 storage/originals/*
 !storage/originals/.gitkeep
+
+# Generated thumbnails
+storage/thumbnails/*
+!storage/thumbnails/.gitkeep
