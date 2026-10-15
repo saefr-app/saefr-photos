@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import { Test } from '@nestjs/testing';
 import {
   FastifyAdapter,
@@ -6,14 +13,20 @@ import {
 } from '@nestjs/platform-fastify';
 
 import { AppModule } from '../src/app.module.js';
+import { DatabaseService } from '../src/database/database.service.js';
 
 describe('Health API (e2e)', () => {
   let app: NestFastifyApplication;
 
+  const ping = vi.fn().mockResolvedValue(undefined);
+
   beforeAll(async () => {
     const moduleFixture = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(DatabaseService)
+      .useValue({ ping })
+      .compile();
 
     app = moduleFixture.createNestApplication<NestFastifyApplication>(
       new FastifyAdapter(),
@@ -27,7 +40,7 @@ describe('Health API (e2e)', () => {
     await app.close();
   });
 
-  it('GET /health returns HTTP 200 and service status', async () => {
+  it('GET /health returns HTTP 200', async () => {
     const response = await app.inject({
       method: 'GET',
       url: '/health',
@@ -37,6 +50,36 @@ describe('Health API (e2e)', () => {
     expect(response.json()).toEqual({
       status: 'ok',
       service: 'saefr-photos',
+    });
+  });
+
+  it('GET /health/ready returns HTTP 200', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/health/ready',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      status: 'ok',
+      database: 'connected',
+    });
+  });
+
+  it('GET /health/ready returns 503 on DB failure', async () => {
+    ping.mockRejectedValueOnce(
+      new Error('Connection refused'),
+    );
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/health/ready',
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      statusCode: 503,
+      message: 'Database unavailable',
     });
   });
 
