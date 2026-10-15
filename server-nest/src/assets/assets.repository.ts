@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Selectable } from 'kysely';
+import type { Insertable, Selectable } from 'kysely';
 
 import { DatabaseService } from '../database/database.service.js';
 import type { AssetTable } from '../database/database.types.js';
@@ -16,52 +16,38 @@ export type AssetFileRecord = Pick<
 
 @Injectable()
 export class AssetsRepository {
-  constructor(
-    private readonly database: DatabaseService,
-  ) {}
+  constructor(private readonly database: DatabaseService) {}
 
   async findAll(): Promise<AssetRecord[]> {
     return this.database.db
       .selectFrom('asset')
-      .select([
-        'id',
-        'filename',
-        'mime_type',
-        'size',
-        'created_at',
-      ])
+      .select(['id', 'filename', 'mime_type', 'size', 'created_at'])
       .orderBy('created_at', 'desc')
       .orderBy('id', 'desc')
       .execute();
   }
 
-  async findById(
-    assetId: string,
-  ): Promise<AssetRecord | undefined> {
+  async findById(assetId: string): Promise<AssetRecord | undefined> {
     return this.database.db
       .selectFrom('asset')
-      .select([
-        'id',
-        'filename',
-        'mime_type',
-        'size',
-        'created_at',
-      ])
+      .select(['id', 'filename', 'mime_type', 'size', 'created_at'])
       .where('id', '=', assetId)
       .executeTakeFirst();
   }
 
-  async findFileById(
-    assetId: string,
-  ): Promise<AssetFileRecord | undefined> {
+  async findFileById(assetId: string): Promise<AssetFileRecord | undefined> {
     return this.database.db
       .selectFrom('asset')
-      .select([
-        'id',
-        'mime_type',
-        'storage_path',
-      ])
+      .select(['id', 'mime_type', 'storage_path'])
       .where('id', '=', assetId)
       .executeTakeFirst();
+  }
+
+  async create(asset: Insertable<AssetTable>): Promise<AssetRecord> {
+    return this.database.db
+      .insertInto('asset')
+      .values(asset)
+      .returning(['id', 'filename', 'mime_type', 'size', 'created_at'])
+      .executeTakeFirstOrThrow();
   }
 }

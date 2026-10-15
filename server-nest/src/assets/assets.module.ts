@@ -8,14 +8,8 @@ import { AssetsRepository } from './assets.repository.js';
 import { AssetsService } from './assets.service.js';
 
 @Module({
-  imports: [
-    DatabaseModule,
-    StorageModule,
-  ],
+  imports: [DatabaseModule, StorageModule],
   controllers: [AssetsController],
-  providers: [
-    AssetsService,
-    AssetsRepository,
-  ],
+  providers: [AssetsService, AssetsRepository],
 })
 export class AssetsModule {}

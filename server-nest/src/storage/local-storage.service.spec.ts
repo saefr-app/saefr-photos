@@ -1,23 +1,11 @@
-import {
-  mkdir,
-  mkdtemp,
-  rm,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 
 import { ConfigService } from '@nestjs/config';
 import { NotFoundException } from '@nestjs/common';
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { LocalStorageService } from './local-storage.service.js';
 
@@ -38,9 +26,7 @@ describe('LocalStorageService', () => {
   let service: LocalStorageService;
 
   beforeEach(async () => {
-    root = await mkdtemp(
-      join(tmpdir(), 'saefr-storage-test-'),
-    );
+    root = await mkdtemp(join(tmpdir(), 'saefr-storage-test-'));
 
     await mkdir(join(root, 'originals'));
     await mkdir(join(root, 'thumbnails'));
@@ -64,19 +50,11 @@ describe('LocalStorageService', () => {
   it('reads an existing original file', async () => {
     const content = Buffer.from('original image data');
 
-    const path = join(
-      root,
-      'originals',
-      `${assetId}.jpg`,
-    );
+    const path = join(root, 'originals', `${assetId}.jpg`);
 
     await writeFile(path, content);
 
-    const file = await service.openOriginal(
-      assetId,
-      'image/jpeg',
-      path,
-    );
+    const file = await service.openOriginal(assetId, 'image/jpeg', path);
 
     expect(file.size).toBe(content.length);
     expect(await readStream(file.stream)).toEqual(content);
@@ -85,10 +63,7 @@ describe('LocalStorageService', () => {
   it('reads an existing thumbnail', async () => {
     const content = Buffer.from('thumbnail data');
 
-    await writeFile(
-      join(root, 'thumbnails', `${assetId}.jpg`),
-      content,
-    );
+    await writeFile(join(root, 'thumbnails', `${assetId}.jpg`), content);
 
     const file = await service.openThumbnail(assetId);
 
@@ -97,9 +72,9 @@ describe('LocalStorageService', () => {
   });
 
   it('returns 404 for a missing file', async () => {
-    await expect(
-      service.openThumbnail(assetId),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.openThumbnail(assetId)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('rejects inconsistent legacy paths', async () => {
@@ -127,20 +102,12 @@ describe('LocalStorageService', () => {
 
     await writeFile(otherFile, 'private data');
 
-    const linkedFile = join(
-      root,
-      'originals',
-      `${assetId}.jpg`,
-    );
+    const linkedFile = join(root, 'originals', `${assetId}.jpg`);
 
     await symlink(otherFile, linkedFile);
 
     await expect(
-      service.openOriginal(
-        assetId,
-        'image/jpeg',
-        linkedFile,
-      ),
+      service.openOriginal(assetId, 'image/jpeg', linkedFile),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

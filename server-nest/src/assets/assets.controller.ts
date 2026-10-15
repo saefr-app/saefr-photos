@@ -1,27 +1,57 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Header,
   Param,
   ParseUUIDPipe,
+  Post,
   StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-
 import {
-  AssetsService,
-  type AssetContent,
-} from './assets.service.js';
+  FileStreamInterceptor,
+  type MultipartFileStream,
+} from '@nestjs/platform-fastify/multipart';
+
+import { AssetsService, type AssetContent } from './assets.service.js';
 import type { AssetResponseDto } from './dto/asset-response.dto.js';
+
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 @Controller('api/v1/assets')
 export class AssetsController {
-  constructor(
-    private readonly assetsService: AssetsService,
-  ) {}
+  constructor(private readonly assetsService: AssetsService) {}
 
   @Get()
   findAll(): Promise<AssetResponseDto[]> {
     return this.assetsService.findAll();
+  }
+
+  @Post('upload')
+  @UseInterceptors(
+    FileStreamInterceptor('file', {
+      limits: {
+        fileSize: MAX_UPLOAD_BYTES,
+        files: 1,
+        fields: 0,
+        parts: 1,
+      },
+    }),
+  )
+  upload(
+    @UploadedFile() file: MultipartFileStream | undefined,
+  ): Promise<AssetResponseDto> {
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+
+    return this.assetsService.upload({
+      filename: file.originalname,
+      mimeType: file.mimetype,
+      stream: file.stream,
+    });
   }
 
   @Get(':assetId')
@@ -56,9 +86,7 @@ export class AssetsController {
     return this.toStreamableFile(file);
   }
 
-  private toStreamableFile(
-    file: AssetContent,
-  ): StreamableFile {
+  private toStreamableFile(file: AssetContent): StreamableFile {
     return new StreamableFile(file.stream, {
       type: file.contentType,
       length: file.size,
