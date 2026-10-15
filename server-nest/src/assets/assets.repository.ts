@@ -9,6 +9,11 @@ export type AssetRecord = Pick<
   'id' | 'filename' | 'mime_type' | 'size' | 'created_at'
 >;
 
+export type AssetFileRecord = Pick<
+  Selectable<AssetTable>,
+  'id' | 'mime_type' | 'storage_path'
+>;
+
 @Injectable()
 export class AssetsRepository {
   constructor(
@@ -41,6 +46,20 @@ export class AssetsRepository {
         'mime_type',
         'size',
         'created_at',
+      ])
+      .where('id', '=', assetId)
+      .executeTakeFirst();
+  }
+
+  async findFileById(
+    assetId: string,
+  ): Promise<AssetFileRecord | undefined> {
+    return this.database.db
+      .selectFrom('asset')
+      .select([
+        'id',
+        'mime_type',
+        'storage_path',
       ])
       .where('id', '=', assetId)
       .executeTakeFirst();
