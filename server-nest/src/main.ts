@@ -9,7 +9,11 @@ import { AppModule } from './app.module.js';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter(),
+    new FastifyAdapter({
+      routerOptions: {
+        ignoreTrailingSlash: true,
+      },
+    }),
   );
 
   app.enableShutdownHooks();

@@ -5,8 +5,10 @@ import { HealthService } from './health.service.js';
 
 describe('HealthService', () => {
   it('returns application health information', () => {
+    const ping = vi.fn();
+
     const database = {
-      ping: vi.fn(),
+      ping,
     } as unknown as DatabaseService;
 
     const service = new HealthService(database);
@@ -16,12 +18,14 @@ describe('HealthService', () => {
       service: 'saefr-photos',
     });
 
-    expect(database.ping).not.toHaveBeenCalled();
+    expect(ping).not.toHaveBeenCalled();
   });
 
   it('returns ready when PostgreSQL responds', async () => {
+    const ping = vi.fn().mockResolvedValue(undefined);
+
     const database = {
-      ping: vi.fn().mockResolvedValue(undefined),
+      ping,
     } as unknown as DatabaseService;
 
     const service = new HealthService(database);
@@ -30,13 +34,17 @@ describe('HealthService', () => {
       status: 'ok',
       database: 'connected',
     });
+
+    expect(ping).toHaveBeenCalledOnce();
   });
 
   it('throws when PostgreSQL is unavailable', async () => {
+    const ping = vi.fn().mockRejectedValue(
+      new Error('Connection refused'),
+    );
+
     const database = {
-      ping: vi.fn().mockRejectedValue(
-        new Error('Connection refused'),
-      ),
+      ping,
     } as unknown as DatabaseService;
 
     const service = new HealthService(database);
@@ -44,5 +52,7 @@ describe('HealthService', () => {
     await expect(service.getReadiness()).rejects.toMatchObject({
       status: 503,
     });
+
+    expect(ping).toHaveBeenCalledOnce();
   });
 });

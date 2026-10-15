@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { resolve } from 'node:path';
 
+import { AssetsModule } from './assets/assets.module.js';
 import { HealthModule } from './health/health.module.js';
 
 @Module({
@@ -15,6 +16,7 @@ import { HealthModule } from './health/health.module.js';
       cache: true,
     }),
     HealthModule,
+    AssetsModule,
   ],
 })
 export class AppModule {}
