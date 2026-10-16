@@ -53,9 +53,24 @@ $ npm run test
 # e2e tests
 $ npm run test:e2e
 
+# real PostgreSQL 18 integration tests (requires a running Docker daemon)
+$ npm run test:integration
+
 # test coverage
 $ npm run test:cov
 ```
+
+The integration runner creates a uniquely named `postgres:18` container with
+temporary in-memory database storage and a random port bound to `127.0.0.1`.
+It supplies test-only credentials directly to Vitest and stops/removes the
+container after normal runs, test failures and handled termination signals. It
+does not use the root Compose project, `.env`, the
+development database volume, or files under `storage/`. Run it from
+`server-nest/`; direct invocation of the integration Vitest config fails the
+isolation check. If the runner is killed before cleanup, inspect containers
+labeled `dev.saefr.purpose=milestone-07-integration` with
+`docker ps -a --filter label=dev.saefr.purpose=milestone-07-integration` and
+stop only the specific test container after confirming its identity.
 
 ## Deployment
 

@@ -1,6 +1,6 @@
 # Saefr Photos — Roadmap and Milestone Status
 
-**Reference:** `refactor/nestjs-migration` @ `19b1467`. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
+**Reference:** Local `refactor/nestjs-migration` working tree based on `e14fd10`, with uncommitted Milestone 7 test changes verified on 2026-10-17 IST. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
 
 ## Completed: initial NestJS functional migration
 - NestJS 12 + Fastify + TypeScript foundation, Node.js 24.
@@ -8,12 +8,12 @@
 - Asset list/single metadata; original and thumbnail streaming.
 - Streamed JPEG/PNG/WebP uploads and Sharp thumbnail generation.
 - Swagger/OpenAPI documentation and local manual upload/retrieval checks.
-- Unit and HTTP tests; **real-database integration tests are not yet set up**.
+- Unit and mocked HTTP tests; the separate real-database suite is described in M7 below.
 
 ## Next milestones — work one at a time on `refactor/nestjs-migration`
 
-### M7 — Real PostgreSQL integration tests [NEXT]
-Isolated disposable test DB (independent from the dev volume); verify real asset insert/read/list/order, missing record, readiness/failure behavior, actual legacy schema including UUID/timestamp/size/storage_path. Add an explicit separate npm test script. Acceptance: no mutation to dev DB; tests demonstrably execute against test DB; all existing checks still pass; milestone report completed. See `docs/development/milestone-07-spec.md`.
+### M7 — Real PostgreSQL integration tests [AWAITING REVIEW]
+An isolated PostgreSQL 18 test suite now verifies repository and readiness behavior against the schema generated from the legacy SQLModel definition. The persisted development table has not yet been inspected because its container was stopped; see `docs/development/milestone-07-report.md` for verified results and the remaining manual check. No commit or next milestone has been approved.
 
 ### M8 — Versioned Kysely database migrations [PLANNED]
 Introduce migrations, safe baseline of the legacy SQLModel-created `asset` table without destroying data, fresh-install schema creation and repeated idempotent startup behavior. Design and test against disposable copies; review and approve any migration of real development DB separately. Clarify timezone and large-file columns based on M7 findings.

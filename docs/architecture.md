@@ -1,6 +1,6 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** GitHub `refactor/nestjs-migration` at commit `19b14677555d7b1a5decc0732b0d468cf9f54940` (2026-10-16 IST). Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** Local `refactor/nestjs-migration` working tree based on `e14fd10`, with uncommitted Milestone 7 test changes verified on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
 
 ## Current system
 - **HTTP/API:** `server-nest/` — NestJS 12 on Fastify, Node.js 24, TypeScript ESM/NodeNext. The server binds to `127.0.0.1:3000` by default; this is appropriate for unauthenticated local development only.
@@ -50,7 +50,7 @@ server-nest/
     health/              # health and readiness checks
     storage/             # original/thumbnail reading, upload staging, Sharp
     openapi/             # Swagger setup
-  test/                  # Fastify HTTP-level tests (mostly mocked dependencies)
+  test/                  # mocked HTTP tests and isolated PostgreSQL integration tests
   package.json           # npm scripts and dependencies
 server/                  # legacy Python backend (do not delete yet)
 compose.yml              # only PostgreSQL currently
@@ -65,8 +65,8 @@ The Kysely `AssetTable` models `asset` with: `id` (UUID represented as string), 
 - No accounts, sessions, per-user asset ownership or authorization. **Do not publicly expose** this API.
 - No asset deletion/trash or cursor pagination.
 - No versioned Kysely migrations; `asset` originally created with SQLModel.
-- Current HTTP tests mostly mock repository/storage. Real PostgreSQL integration tests planned for Milestone 7.
-- Timestamp type/timezone and 32-bit file-size capacity require verification and future migration planning.
+- HTTP tests mostly mock repository/storage. Milestone 7 adds a separate real PostgreSQL 18 integration suite for repository and readiness behavior using a disposable, in-memory Docker database; it does not compare against the persisted development schema.
+- The legacy model's time-zone-aware timestamp and 32-bit file-size type are verified in a disposable database; the persisted development schema and historical values still need a read-only comparison before migration planning.
 - Cross-system upload durability, startup recovery, isolated filesystem/NAS support, and threat-model hardening are not complete.
 - No fully Dockerized backend or Redis/BullMQ worker yet; no mobile application or ML service integrated.
 - Swagger/OpenAPI is development-only by environment convention, not an authentication mechanism.
