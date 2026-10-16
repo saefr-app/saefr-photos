@@ -1,6 +1,6 @@
 # Saefr Photos — Roadmap and Milestone Status
 
-**Reference:** Local `refactor/nestjs-migration` working tree based on `e14fd10`, with uncommitted Milestone 7 test changes verified on 2026-10-17 IST. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
+**Reference:** Local `refactor/nestjs-migration` working tree based on `977514c`, with uncommitted Milestone 8 migration changes verified on 2026-10-17 IST. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
 
 ## Completed: initial NestJS functional migration
 - NestJS 12 + Fastify + TypeScript foundation, Node.js 24.
@@ -12,11 +12,11 @@
 
 ## Next milestones — work one at a time on `refactor/nestjs-migration`
 
-### M7 — Real PostgreSQL integration tests [AWAITING REVIEW]
-An isolated PostgreSQL 18 test suite now verifies repository and readiness behavior against the schema generated from the legacy SQLModel definition. The persisted development table has not yet been inspected because its container was stopped; see `docs/development/milestone-07-report.md` for verified results and the remaining manual check. No commit or next milestone has been approved.
+### M7 — Real PostgreSQL integration tests [COMPLETED]
+Committed as `977514c`. The maintainer subsequently verified the real legacy schema with `psql`, resolving M7's schema uncertainty. See `docs/development/milestone-07-report.md` for the original test evidence and cleanup limitations.
 
-### M8 — Versioned Kysely database migrations [PLANNED]
-Introduce migrations, safe baseline of the legacy SQLModel-created `asset` table without destroying data, fresh-install schema creation and repeated idempotent startup behavior. Design and test against disposable copies; review and approve any migration of real development DB separately. Clarify timezone and large-file columns based on M7 findings.
+### M8 — Versioned Kysely database migrations [AWAITING REVIEW]
+Implemented standalone Kysely migration commands, fresh-install schema creation, explicit legacy baselining, metadata/history validation and repeat/concurrency/failure tests. API startup does not run migrations. Existing development data has not been migrated. See `docs/development/milestone-08-report.md` and `docs/development/database-migrations.md`; approval for any real database migration remains separate.
 
 ### M9 — Backend hardening [PLANNED]
 Configuration validation; safe upload and filesystem edge cases; file-size and image formats; failure cleanup/reconciliation; logging/error responses; cleanup of unused Express-related dependencies; security/configuration verification. Split into smaller commits if necessary. Re-run meaningful end-to-end tests and explicitly record remaining production risks.

@@ -1,7 +1,5 @@
-import { execFileSync } from 'node:child_process';
-
 import { ServiceUnavailableException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import type { ConfigService } from '@nestjs/config';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -9,6 +7,8 @@ import { AssetsRepository } from '../src/assets/assets.repository.js';
 import { AssetsService } from '../src/assets/assets.service.js';
 import type { AssetTable } from '../src/database/database.types.js';
 import { DatabaseService } from '../src/database/database.service.js';
+import { migrateToLatest } from '../src/database/migrations/migration-runner.js';
+import { testConfig } from './helpers/integration-database.js';
 import { HealthService } from '../src/health/health.service.js';
 import type { LocalStorageService } from '../src/storage/local-storage.service.js';
 
@@ -18,80 +18,6 @@ const ids = {
   third: '00000000-0000-4000-8000-000000000003',
   missing: '00000000-0000-4000-8000-000000000099',
 };
-
-function testConfig(): ConfigService {
-  const containerId = process.env.SAEFR_M7_TEST_CONTAINER_ID;
-  const name = process.env.SAEFR_M7_TEST_DB;
-  const user = process.env.SAEFR_M7_TEST_USER;
-  const password = process.env.SAEFR_M7_TEST_PASSWORD;
-  const port = process.env.SAEFR_M7_TEST_PORT;
-
-  if (
-    !containerId ||
-    !name ||
-    !/^saefr_m7_[a-f0-9]{12}$/.test(name) ||
-    user !== 'saefr_m7_test' ||
-    !password ||
-    !port ||
-    !/^[1-9][0-9]*$/.test(port)
-  ) {
-    throw new Error('Run integration tests through npm run test:integration');
-  }
-
-  // Inspect the exact container before issuing any schema or fixture SQL.
-  const inspected = JSON.parse(
-    execFileSync('docker', ['inspect', containerId], {
-      encoding: 'utf8',
-      timeout: 5000,
-    }),
-  ) as Array<{
-    Name: string;
-    Config: { Image: string; Labels: Record<string, string>; Env: string[] };
-    HostConfig: { AutoRemove: boolean; Tmpfs: Record<string, string> | null };
-    Mounts: Array<{ Type: string }>;
-    NetworkSettings: {
-      Ports: Record<string, Array<{ HostIp: string; HostPort: string }>>;
-    };
-  }>;
-  const container = inspected[0];
-  const binding = container?.NetworkSettings.Ports['5432/tcp']?.[0];
-  const env = new Map(
-    container?.Config.Env.map((entry) => {
-      const separator = entry.indexOf('=');
-      return [entry.slice(0, separator), entry.slice(separator + 1)];
-    }),
-  );
-
-  if (
-    container?.Name !== `/saefr-m7-test-${name.slice('saefr_m7_'.length)}` ||
-    container.Config.Image !== 'postgres:18' ||
-    container.Config.Labels['dev.saefr.purpose'] !==
-      'milestone-07-integration' ||
-    !container.HostConfig.AutoRemove ||
-    !container.HostConfig.Tmpfs?.['/var/lib/postgresql'] ||
-    container.Mounts.some((mount) => mount.Type !== 'tmpfs') ||
-    binding?.HostIp !== '127.0.0.1' ||
-    binding.HostPort !== port ||
-    env.get('POSTGRES_DB') !== name ||
-    env.get('POSTGRES_USER') !== user ||
-    env.get('POSTGRES_PASSWORD') !== password
-  ) {
-    throw new Error(
-      'Refusing to use a database without verified test-container isolation',
-    );
-  }
-
-  // Internal values take precedence over inherited POSTGRES_* variables;
-  // this instance never loads .env.
-  const config = new ConfigService({
-    POSTGRES_HOST: '127.0.0.1',
-    POSTGRES_PORT: port,
-    POSTGRES_DB: name,
-    POSTGRES_USER: user,
-    POSTGRES_PASSWORD: password,
-  });
-  return config;
-}
 
 function asset(
   id: string,
@@ -134,15 +60,7 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
     expect(identity.rows[0].version_number).toBeGreaterThanOrEqual(180000);
     expect(identity.rows[0].version_number).toBeLessThan(190000);
 
-    // Matches DDL generated from server/app/models/asset.py using the pinned SQLModel.
-    await sql`create table asset (
-      filename varchar not null,
-      mime_type varchar not null,
-      size integer not null,
-      id uuid not null primary key,
-      storage_path varchar not null,
-      created_at timestamp with time zone not null
-    )`.execute(database.db);
+    await migrateToLatest(database.db);
     repository = new AssetsRepository(database);
   });
 

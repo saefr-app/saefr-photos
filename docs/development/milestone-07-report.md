@@ -1,9 +1,11 @@
 # Milestone 07 — Real PostgreSQL integration tests
 
-- **Status:** Awaiting maintainer review
+- **Status:** Completed; committed before Milestone 8
 - **Branch and base commit:** `refactor/nestjs-migration` at `e14fd10`
-- **Implemented commit:** None; changes are uncommitted
+- **Implemented commit:** `977514c`
 - **Date:** 2026-10-17 IST
+
+**Follow-up supplied for M8:** The maintainer subsequently inspected `public.asset` using `psql \d+` and confirmed that the persisted UUID/VARCHAR/INTEGER/TIMESTAMP WITH TIME ZONE columns, NOT NULL constraints, `asset_pkey` primary key and absence of database defaults match the legacy SQLModel schema. The results and open review checkboxes below describe the original M7 handoff, before that confirmation and commit. No agent inspection of real asset records is implied.
 
 ## Goal and acceptance criteria
 

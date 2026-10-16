@@ -1,6 +1,6 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** Local `refactor/nestjs-migration` working tree based on `e14fd10`, with uncommitted Milestone 7 test changes verified on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** Local `refactor/nestjs-migration` working tree based on `977514c` (completed M7), with uncommitted Milestone 8 migration changes verified on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
 
 ## Current system
 - **HTTP/API:** `server-nest/` — NestJS 12 on Fastify, Node.js 24, TypeScript ESM/NodeNext. The server binds to `127.0.0.1:3000` by default; this is appropriate for unauthenticated local development only.
@@ -47,6 +47,7 @@ server-nest/
     app.module.ts        # Config, Health, Assets
     assets/              # HTTP controller, orchestration, Kysely repository, DTO
     database/            # connection pool, Kysely types, DB ping
+      migrations/        # standalone CLI, schema checks, immutable versions
     health/              # health and readiness checks
     storage/             # original/thumbnail reading, upload staging, Sharp
     openapi/             # Swagger setup
@@ -58,15 +59,18 @@ storage/originals/       # ignored original files (preserve)
 storage/thumbnails/      # ignored generated files (preserve)
 ```
 
-## Database shape as currently typed
-The Kysely `AssetTable` models `asset` with: `id` (UUID represented as string), `filename`, `mime_type`, `size` (number), `storage_path`, and `created_at` (Date). This is a **TypeScript contract**, not proof of actual PostgreSQL column types. Confirm the real schema and UTC timestamp behavior in Milestone 7 before changing it.
+## Verified database schema and migrations
+The maintainer's `psql \d+ public.asset` inspection confirmed UUID `id`, unbounded VARCHAR `filename`/`mime_type`/`storage_path`, INTEGER `size`, and TIMESTAMP WITH TIME ZONE `created_at`. All columns are NOT NULL with no database defaults; `asset_pkey` is the primary key/index on `id`. This matches the SQLModel-generated schema tested in M7. M8 did not independently query the development database.
+
+The standalone migration CLI uses Kysely `Migrator`, version files and `public.kysely_migration`/`public.kysely_migration_lock`. Fresh installs create the verified schema. Explicitly opted-in legacy baselines validate and lock the existing table, then record the initial version without changing the table or rows. Incompatible schemas/history fail without automatic repair. A runner advisory lock serializes preflight/bootstrap; Kysely applies pending versions and ledger entries transactionally. Metadata bootstrap itself precedes that transaction and may remain after failure.
+
+Migration commands require dedicated `MIGRATION_POSTGRES_*` settings and database confirmation, and never run during API startup. See [database-migrations.md](development/database-migrations.md). The application still exposes `created_at` as UTC ISO text and keeps storage paths internal.
 
 ## Known limitations / not yet implemented
 - No accounts, sessions, per-user asset ownership or authorization. **Do not publicly expose** this API.
 - No asset deletion/trash or cursor pagination.
-- No versioned Kysely migrations; `asset` originally created with SQLModel.
-- HTTP tests mostly mock repository/storage. Milestone 7 adds a separate real PostgreSQL 18 integration suite for repository and readiness behavior using a disposable, in-memory Docker database; it does not compare against the persisted development schema.
-- The legacy model's time-zone-aware timestamp and 32-bit file-size type are verified in a disposable database; the persisted development schema and historical values still need a read-only comparison before migration planning.
+- HTTP tests mostly mock repository/storage. The separate PostgreSQL 18 suite now verifies the migrated schema, repository behavior, legacy baselining, repeat runs, concurrency and failure cases using a disposable database. Real development migrations and restoration from a real backup were not exercised.
+- `size` remains a signed 32-bit INTEGER. No large-file or timestamp conversion was introduced. Historical development records were not inspected or changed by M8.
 - Cross-system upload durability, startup recovery, isolated filesystem/NAS support, and threat-model hardening are not complete.
 - No fully Dockerized backend or Redis/BullMQ worker yet; no mobile application or ML service integrated.
 - Swagger/OpenAPI is development-only by environment convention, not an authentication mechanism.

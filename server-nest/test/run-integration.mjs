@@ -68,6 +68,9 @@ async function waitForDatabase() {
 }
 
 try {
+  if (process.argv.slice(2).some((argument) => argument !== '--migrations')) {
+    throw new Error('Only the --migrations test filter is supported');
+  }
   // No Compose project, named volume, bind mount, or application .env is used.
   const result = await docker(
     'run',
@@ -116,6 +119,9 @@ try {
         'run',
         '--config',
         'vitest.config.integration.ts',
+        ...(process.argv.includes('--migrations')
+          ? ['test/migrations.integration-spec.ts']
+          : []),
       ],
       {
         stdio: 'inherit',

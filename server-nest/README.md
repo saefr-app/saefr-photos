@@ -56,6 +56,9 @@ $ npm run test:e2e
 # real PostgreSQL 18 integration tests (requires a running Docker daemon)
 $ npm run test:integration
 
+# only migration scenarios, using the same disposable environment
+$ npm run test:migrations
+
 # test coverage
 $ npm run test:cov
 ```
@@ -71,6 +74,15 @@ isolation check. If the runner is killed before cleanup, inspect containers
 labeled `dev.saefr.purpose=milestone-07-integration` with
 `docker ps -a --filter label=dev.saefr.purpose=milestone-07-integration` and
 stop only the specific test container after confirming its identity.
+
+## Database migrations
+
+`npm run db:status` inspects migration state. `npm run db:migrate` requires
+explicit migration connection settings and a matching `--confirm-database`
+argument. Existing legacy tables additionally require `--baseline-legacy`
+after schema review and backup approval. Application startup does not run
+migrations. See [the migration guide](../docs/development/database-migrations.md)
+for configuration, baseline safety, failure recovery and planned Docker deployment.
 
 ## Deployment
 
