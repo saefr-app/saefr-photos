@@ -1,6 +1,6 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** Local `refactor/nestjs-migration` working tree at committed Phase 9C (`99a8646`), with an uncommitted media-stream error correction awaiting review on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** Backend implementation on `refactor/nestjs-migration` through the completed Milestone 9 corrective commit (`3679682`), following Phase 9C (`99a8646`), on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
 
 ## Current system
 - **HTTP/API:** `server-nest/` — NestJS 12 on Fastify, Node.js 24, TypeScript ESM/NodeNext. The server binds to `127.0.0.1:3000` by default; this is appropriate for unauthenticated local development only.

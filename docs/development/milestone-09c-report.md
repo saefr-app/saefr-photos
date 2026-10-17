@@ -1,13 +1,13 @@
 # Milestone 9 — Phase 9C: Logging, error handling and final verification
 
-- **Status:** Phase 9C committed as `99a8646`; focused media-stream error correction implemented and awaiting maintainer review
+- **Status:** Completed and approved; Phase 9C committed as `99a8646` and the reviewed media-stream correction committed as `3679682` (both pushed, per maintainer)
 - **Branch and base commit:** `refactor/nestjs-migration`, `69dbeaf` (committed Phase 9B)
 - **Date:** 2026-10-17 IST
 - **Scope:** Phase 9C as requested in this chat. No separate Phase 9C specification file exists.
 
 ## Goal and implementation
 
-The audit found that Nest's default exception handler logs unexpected error objects and may return messages from framework-style HTTP errors. Driver exceptions can contain database details, filesystem paths or user-controlled content. The API now installs one app-wide Nest exception filter. Known application 4xx messages and the readiness 503 remain useful; other exception messages are replaced with stable status messages. Unexpected failures return a fixed HTTP 500 body. Server logs identify an allowlisted route pattern and allowlisted error code/category, never a raw exception, request URL, file path, image metadata or private content. If response headers have already been sent, the filter ends the response; it cannot replace partial streamed content with JSON.
+The audit found that Nest's default exception handler logs unexpected error objects and may return messages from framework-style HTTP errors. Driver exceptions can contain database details, filesystem paths or user-controlled content. The API now installs one app-wide Nest exception filter. Known application 4xx messages and the readiness 503 remain useful; other exception messages are replaced with stable status messages. Unexpected failures return a fixed HTTP 500 body. Server logs identify an allowlisted route pattern and allowlisted error code/category, never a raw exception, request URL, file path, image metadata or private content. If response headers have already been sent, the failed connection is closed; partial streamed content cannot be replaced with JSON.
 
 The same safe diagnostic helper now annotates startup, readiness, PostgreSQL idle-client and failed upload cleanup logs. The database shutdown hook catches a failed pool close, logs a safe category and rethrows a fixed-message error so Nest's signal handler cannot print the raw driver stack. Existing Nest shutdown hooks and startup cleanup remain in place. The migration CLI was audited but not changed: it already uses fixed safety messages and a `safeMigrationError` mapping rather than raw driver text.
 
@@ -50,9 +50,9 @@ All npm commands ran in `server-nest/` with Node.js `v24.22.0`. The repository b
 
 The first runtime smoke run failed because it expected exit code 0 after SIGTERM. Nest's installed shutdown-hook implementation completes shutdown and then re-sends SIGTERM to the process, so a signal exit is expected. The smoke assertion was corrected to accept that signal only after the process exits and the listener is confirmed closed. The final `npm run test:runtime-smoke` passed. Tests intentionally inject a database error containing a fake credential/path; the test output contains only a fixed log category.
 
-After the initial verification, a concurrent edit removed several checks from `test/run-integration.mjs`. Its exact pre-restoration diff was saved at `/tmp/saefr-run-integration-concurrent.patch`. On maintainer instruction, the runner's name/ID, image, label, isolated credentials, tmpfs, localhost-port, signal and ownership-checked cleanup safeguards were restored. A subsequent maintainer request restored the original `--migrations` argument validation and Vitest file selection, leaving all container safeguards intact. Final reruns passed 35 tests in `test:integration` and 28 in `test:migrations`. Each run printed container removal; a `docker ps -a` query by the integration label after each returned no containers. Runner syntax, formatting and `git diff --check` passed after the final correction. The only remaining runner diff against the committed version is the concurrent inspect-by-ID formatting and equivalent Docker `--time` spelling; that diff is outside Phase 9C and excluded from its review patch.
+During Phase 9C verification, an independent runner edit briefly removed container-safety checks and migration-only test selection. Both were restored before the final database test runs. The runner again verified container identity, image, ownership label, isolated credentials, tmpfs data, localhost binding and ownership-checked cleanup. Final reruns passed 35 tests in `test:integration` and 28 in `test:migrations`; each printed container removal, and label-filtered Docker listings showed no remaining integration containers. Runner syntax, formatting and `git diff --check` passed.
 
-## Post-commit media-stream error correction (uncommitted)
+## Post-commit media-stream error correction (`3679682`)
 
 An independent review reproduced a response regression: Fastify copied `StreamableFile` image headers to its raw reply before an early stream error, and the filter's object response then failed with `FST_ERR_REP_INVALID_PAYLOAD_TYPE`. The filter now removes the stale media content type, length and disposition before sending a fixed JSON error. If headers have already been sent, it destroys the response connection without sending a second body. Focused HTTP tests cover an error before the first byte, a real localhost socket receiving partial media before failure, and unchanged successful original and thumbnail streams. No storage, database or API success path was changed.
 
@@ -67,7 +67,7 @@ An independent review reproduced a response regression: Fastify copied `Streamab
 | `npm run test:runtime-smoke` | PASS | Safe invalid-config and occupied-port failures; localhost listener closed after SIGTERM |
 | `git diff --check` | PASS | No whitespace errors in the final worktree diff |
 
-A label-filtered `docker ps -a` check after each database command returned no integration containers. The existing unstaged `test/run-integration.mjs` inspect-by-ID and Docker `--time` edit was not modified by this correction. Focused injection of filesystem write and cleanup failures remains a follow-up; the stream fix did not require changing those paths.
+A label-filtered `docker ps -a` check after each database command returned no integration containers. Focused injection of filesystem write and cleanup failures remains a follow-up; the stream fix did not require changing those paths. The checks above record the corrective implementation and were not rerun for this documentation update.
 
 ## Security and data safety
 
@@ -102,8 +102,8 @@ The two database test commands require Docker and create only disposable Postgre
 
 ## Review gate
 
-- [x] Phase 9C committed as `99a8646`; media-stream correction awaits maintainer review
+- [x] Phase 9C committed as `99a8646`; reviewed media-stream correction committed as `3679682`
 - [x] Required checks passed with recorded evidence
 - [x] Development database, Docker volume and stored photographs preserved
-- [ ] Media-stream correction commit or push approved
+- [x] Both commits approved and pushed (maintainer confirmation)
 - [x] Integration branch and authentication work not started

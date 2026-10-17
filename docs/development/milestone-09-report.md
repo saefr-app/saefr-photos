@@ -1,6 +1,6 @@
 # Milestone 9 — Backend hardening consolidated report
 
-- **Status:** Phases 9A, 9B and 9C committed; focused media-stream error correction awaiting review
+- **Status:** Completed and approved; Phases 9A, 9B, 9C and the corrective fix committed and pushed (maintainer confirmation)
 - **Branch:** `refactor/nestjs-migration`; no integration branch created
 - **Date:** 2026-10-17 IST
 
@@ -10,11 +10,12 @@
 | --- | --- | --- |
 | [9A](milestone-09a-report.md) | Committed as `f8930be` | Central runtime configuration validation, localhost defaults, safe startup failure handling, removal of unused Express/Mau dependencies |
 | [9B](milestone-09b-report.md) | Committed as `69dbeaf` | Multipart completion before publication, upload size and image limits, stream/temporary-file cleanup, path and symlink checks, no-overwrite publication, byte-for-byte originals |
-| [9C](milestone-09c-report.md) | Committed as `99a8646`; subsequent stream correction uncommitted | Sanitized HTTP errors, allowlisted request/startup/cleanup diagnostics, safe pool-shutdown failure handling, final regression and runtime smoke checks |
+| [9C](milestone-09c-report.md) | Committed as `99a8646` | Sanitized HTTP errors, allowlisted request/startup/cleanup diagnostics, safe pool-shutdown failure handling, final regression and runtime smoke checks |
+| [Astra P2 correction](milestone-09c-report.md#post-commit-media-stream-error-correction-3679682) | Committed as `3679682` | Sanitized early media-stream failures and safe termination after response transmission begins |
 
 ## Final regression evidence
 
-With Node.js `v24.22.0` on the current branch, the committed Phase 9C verification passed: `npm run build`, `npm run typecheck`, `npm run lint`, targeted Prettier, 59 unit tests, 34 HTTP E2E tests, 35 isolated PostgreSQL integration tests, 28 migration-only tests, the invalid-config/occupied-port/SIGTERM runtime smoke command, and `git diff --check`. After the media-stream correction, build, typecheck, lint, targeted Prettier, 59 unit tests, **38** HTTP E2E tests, 35 disposable PostgreSQL integration tests, 28 migration-only tests and runtime smoke passed again. Both post-correction PostgreSQL 18 test containers were removed. Details and the original smoke assertion correction are in the [Phase 9C report](milestone-09c-report.md).
+With Node.js `v24.22.0`, the Phase 9C verification passed: `npm run build`, `npm run typecheck`, `npm run lint`, targeted Prettier, 59 unit tests, 34 HTTP E2E tests, 35 isolated PostgreSQL integration tests, 28 migration-only tests, the invalid-config/occupied-port/SIGTERM runtime smoke command, and `git diff --check`. After the media-stream correction, build, typecheck, lint, targeted Prettier, 59 unit tests, **38** HTTP E2E tests, 35 disposable PostgreSQL integration tests, 28 migration-only tests and runtime smoke passed again. Both post-correction PostgreSQL 18 test containers were removed. These are the recorded implementation checks; this documentation update did not rerun them. Details and the original smoke assertion correction are in the [Phase 9C report](milestone-09c-report.md).
 
 ## Implemented safety boundary
 
@@ -31,12 +32,12 @@ All new filesystem tests use temporary directories. Real database tests use veri
 - **Deployment validation remains:** No Dockerized API stack, production backup/restore rehearsal, real deployment shutdown under hung I/O, or end-to-end security review has been completed.
 - **Filesystem failure tests:** Focused injection of write and cleanup failures is still needed; the current correction does not alter those paths.
 
-Milestone 9 therefore hardens the development backend; it does not establish deployment readiness or a secure public service. The proposed `integration` branch and authentication module require separate maintainer approval after review.
+Milestone 9 is complete, but it does not establish deployment readiness or a secure public service. The proposed `integration` branch and authentication module require separate maintainer approval.
 
 ## Review gate
 
-- [x] Phase 9C committed as `99a8646`; the media-stream correction awaits maintainer review
+- [x] Phase 9C committed as `99a8646`; the reviewed media-stream correction committed as `3679682`
 - [x] Final automated regression commands passed
-- [ ] Media-stream correction commit or push approved
+- [x] All four Milestone 9 commits approved and pushed (maintainer confirmation)
 - [ ] Integration branch approved
 - [x] No authentication or later milestone work started
