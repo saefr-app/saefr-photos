@@ -1,6 +1,6 @@
 # Saefr Photos — Roadmap and Milestone Status
 
-**Reference:** Backend implementation on `refactor/nestjs-migration` through the completed Milestone 9 corrective commit (`3679682`) on 2026-10-17 IST. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
+**Reference:** `integration` was created from the completed Milestone 9 foundation at `94e54c9` on 2026-10-17 IST. This is the adopted development direction, not a delivery date or proof of unfinished features. Update status after verification.
 
 ## Completed: initial NestJS functional migration
 - NestJS 12 + Fastify + TypeScript foundation, Node.js 24.
@@ -21,11 +21,10 @@ Committed as `452473c`. Standalone Kysely migration commands, fresh-install sche
 ### M9 — Backend hardening [COMPLETED]
 Phase 9A was committed as `f8930be`: runtime configuration validation, startup failure handling and unused framework dependencies. Phase 9B was committed as `69dbeaf`: multipart completion, interrupted uploads, temporary-file cleanup, storage paths, collision handling and upload limits. Phase 9C was committed as `99a8646`: sanitized error responses and logging, focused error tests and a startup/shutdown smoke check. The reviewed correction for early media-stream errors was committed as `3679682`. All four commits were pushed, as confirmed by the maintainer. See the three phase reports and `docs/development/milestone-09-report.md`. Upload crash recovery, database/filesystem reconciliation and targeted filesystem failure-injection tests remain future work.
 
-## Branching transition **after separate approval**
-- Proposed integration branch name: `integration` (not created automatically by these documents).
-- Create `integration` from the verified `refactor/nestjs-migration` head when the user approves.
-- From `integration`, create feature branches for substantial modules and merge reviewed PRs back into `integration`.
-- Do **not** merge into `main` until first self-hostable alpha validation passes. See `docs/decisions/0003-branching-and-first-alpha.md` (proposal).
+## Adopted integration workflow
+- `integration` is the shared baseline, created from the completed Milestone 9 foundation at `94e54c9`.
+- Create short-lived feature branches from an up-to-date `integration`; merge them back through reviewed pull requests after relevant checks pass.
+- Reserve `main` for the first validated, secure, persistent and documented self-hostable alpha. A merge into `main` requires separate maintainer approval. See the accepted `docs/decisions/0003-branching-and-first-alpha.md`.
 
 ## Later alpha modules (ordering may adjust)
 1. Authentication: account registration/login, secure sessions, password handling.

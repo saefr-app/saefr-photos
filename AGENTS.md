@@ -52,7 +52,7 @@ When these documents disagree with working code, report the discrepancy; don't s
 6. Summarize changes and ask for review. Wait for explicit approval before committing, pushing or starting the next milestone.
 
 ## Team collaboration and planned evolution
-- Current working branch: `refactor/nestjs-migration`. After Milestone 9 and approval, **proposed** long-lived integration baseline is `integration`; do not create or switch to it prematurely.
-- Aim for the first `main` merge only after a secure, persistent, documented, Docker Compose deployable backend alpha passes validation. Team feature branches should be short-lived and merged via reviewed PRs into `integration` after it exists.
+- Current shared baseline: `integration`, created from the completed Milestone 9 foundation at `94e54c9`. Create short-lived feature branches from an up-to-date `integration` and merge them back through reviewed pull requests after relevant checks pass.
+- Keep `main` reserved for the first secure, persistent, documented, self-hostable alpha after validation. Do not merge `integration` into `main` solely because a feature or milestone is complete.
 - Planned background-job design: Redis + BullMQ with a separate worker when needed. ML inference later runs in a separate Python-based service. Neither is implemented yet.
 - A mobile client and ML workstreams may begin independently when API contracts are stable; don't block them needlessly or merge unfinished work by default.
