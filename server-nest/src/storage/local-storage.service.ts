@@ -1,18 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import { constants, createWriteStream } from 'node:fs';
-import { link, mkdir, open, realpath, rm, stat } from 'node:fs/promises';
+import { chmod, link, mkdir, open, realpath, rm, stat } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { Readable } from 'node:stream';
+import { basename, join, resolve } from 'node:path';
+import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import {
   Injectable,
+  Logger,
   NotFoundException,
+  PayloadTooLargeException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import sharp, { type Metadata } from 'sharp';
+
+import { MAX_IMAGE_PIXELS, MAX_UPLOAD_BYTES } from './image-limits.js';
 
 export interface StoredFile {
   stream: Readable;
@@ -35,7 +39,14 @@ const IMAGE_FORMATS: Readonly<
   'image/webp': { extension: '.webp', format: 'webp' },
 };
 
-const MAX_IMAGE_PIXELS = 40_000_000;
+const ASSET_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertAssetId(assetId: string): void {
+  if (!ASSET_ID.test(assetId)) {
+    throw new Error('Invalid asset identifier for storage');
+  }
+}
 
 function isMissingFileError(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | null)?.code;
@@ -45,6 +56,7 @@ function isMissingFileError(error: unknown): boolean {
 
 @Injectable()
 export class LocalStorageService {
+  private readonly logger = new Logger(LocalStorageService.name);
   private readonly storageRoot: string;
 
   constructor(config: ConfigService) {
@@ -55,7 +67,10 @@ export class LocalStorageService {
     assetId: string,
     mimeType: string,
     input: Readable,
+    verifyComplete?: () => Promise<void>,
   ): Promise<StoredImage> {
+    assertAssetId(assetId);
+
     const format = IMAGE_FORMATS[mimeType];
 
     if (!format) {
@@ -81,14 +96,31 @@ export class LocalStorageService {
 
     let originalPublished = false;
     let thumbnailPublished = false;
+    let streamedBytes = 0;
 
     try {
+      const sizeLimit = new Transform({
+        transform(chunk: Buffer | string, _encoding, callback) {
+          streamedBytes += Buffer.byteLength(chunk);
+
+          if (streamedBytes > MAX_UPLOAD_BYTES) {
+            callback(new PayloadTooLargeException('File too large'));
+          } else {
+            callback(null, chunk);
+          }
+        },
+      });
+
       await pipeline(
         input,
+        sizeLimit,
         createWriteStream(temporaryOriginal, {
           flags: 'wx',
+          mode: 0o600,
         }),
       );
+
+      await verifyComplete?.();
 
       const fileStats = await stat(temporaryOriginal);
 
@@ -145,6 +177,8 @@ export class LocalStorageService {
         throw new UnsupportedMediaTypeException('Unable to decode image');
       }
 
+      await chmod(temporaryThumbnail, 0o600);
+
       await link(temporaryOriginal, originalPath);
       originalPublished = true;
 
@@ -157,24 +191,31 @@ export class LocalStorageService {
         size: fileStats.size,
       };
     } catch (error: unknown) {
-      if (thumbnailPublished) {
-        await rm(thumbnailPath, { force: true }).catch(() => undefined);
-      }
+      const publishedCleanup = await Promise.allSettled([
+        ...(thumbnailPublished ? [rm(thumbnailPath, { force: true })] : []),
+        ...(originalPublished ? [rm(originalPath, { force: true })] : []),
+      ]);
 
-      if (originalPublished) {
-        await rm(originalPath, { force: true }).catch(() => undefined);
+      if (publishedCleanup.some((result) => result.status === 'rejected')) {
+        this.logger.error('Unable to remove files after failed upload');
       }
 
       throw error;
     } finally {
-      await Promise.allSettled([
+      const temporaryCleanup = await Promise.allSettled([
         rm(temporaryOriginal, { force: true }),
         rm(temporaryThumbnail, { force: true }),
       ]);
+
+      if (temporaryCleanup.some((result) => result.status === 'rejected')) {
+        this.logger.error('Unable to remove temporary upload files');
+      }
     }
   }
 
   async deleteImage(assetId: string, mimeType: string): Promise<void> {
+    assertAssetId(assetId);
+
     const format = IMAGE_FORMATS[mimeType];
 
     if (!format) {
@@ -199,6 +240,8 @@ export class LocalStorageService {
     mimeType: string,
     legacyStoragePath: string,
   ): Promise<StoredFile> {
+    assertAssetId(assetId);
+
     const extension = IMAGE_FORMATS[mimeType]?.extension;
 
     if (!extension) {
@@ -215,6 +258,8 @@ export class LocalStorageService {
   }
 
   async openThumbnail(assetId: string): Promise<StoredFile> {
+    assertAssetId(assetId);
+
     return this.openFile('thumbnails', `${assetId}.jpg`);
   }
 
@@ -250,15 +295,9 @@ export class LocalStorageService {
     try {
       const root = await realpath(this.storageRoot);
 
-      const directory = await realpath(join(this.storageRoot, directoryName));
+      const directory = await realpath(join(root, directoryName));
 
-      const relativeDirectory = relative(root, directory);
-
-      if (
-        relativeDirectory === '..' ||
-        relativeDirectory.startsWith(`..${sep}`) ||
-        isAbsolute(relativeDirectory)
-      ) {
+      if (directory !== join(root, directoryName)) {
         throw new NotFoundException('Asset file not found');
       }
 

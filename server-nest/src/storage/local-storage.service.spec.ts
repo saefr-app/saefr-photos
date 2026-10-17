@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
@@ -105,5 +112,35 @@ describe('LocalStorageService', () => {
     await expect(
       service.openOriginal(assetId, 'image/jpeg', linkedFile),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('does not follow an aliased originals directory', async () => {
+    await rm(join(root, 'originals'), { recursive: true });
+    await symlink(join(root, 'thumbnails'), join(root, 'originals'));
+    await writeFile(
+      join(root, 'thumbnails', `${assetId}.jpg`),
+      'thumbnail bytes',
+    );
+
+    await expect(
+      service.openOriginal(
+        assetId,
+        'image/jpeg',
+        `/legacy/originals/${assetId}.jpg`,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('rejects path-shaped asset IDs before file access or deletion', async () => {
+    const sentinel = join(root, 'private.jpg');
+    await writeFile(sentinel, 'private data');
+
+    await expect(service.openThumbnail('../private')).rejects.toThrow(
+      'Invalid asset identifier for storage',
+    );
+    await expect(
+      service.deleteImage('../private', 'image/jpeg'),
+    ).rejects.toThrow('Invalid asset identifier for storage');
+    expect(await readFile(sentinel, 'utf8')).toBe('private data');
   });
 });

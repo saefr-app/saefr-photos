@@ -17,6 +17,7 @@ async function bootstrap(): Promise<void> {
     app = await NestFactory.create<NestFastifyApplication>(
       AppModule,
       new FastifyAdapter({
+        multipart: true,
         routerOptions: {
           ignoreTrailingSlash: true,
         },

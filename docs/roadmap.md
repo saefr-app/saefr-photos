@@ -1,6 +1,6 @@
 # Saefr Photos — Roadmap and Milestone Status
 
-**Reference:** Local `refactor/nestjs-migration` working tree based on committed Milestone 8 (`452473c`), with uncommitted Phase 9A changes awaiting review on 2026-10-17 IST. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
+**Reference:** Local `refactor/nestjs-migration` working tree based on committed Phase 9A (`f8930be`), with uncommitted Phase 9B changes awaiting review on 2026-10-17 IST. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
 
 ## Completed: initial NestJS functional migration
 - NestJS 12 + Fastify + TypeScript foundation, Node.js 24.
@@ -18,8 +18,8 @@ Committed as `977514c`. The maintainer subsequently verified the real legacy sch
 ### M8 — Versioned Kysely database migrations [COMMITTED]
 Committed as `452473c`. Standalone Kysely migration commands, fresh-install schema creation, explicit legacy baselining, metadata/history validation and repeat/concurrency/failure tests are implemented. API startup does not run migrations. Existing development data has not been migrated. See `docs/development/milestone-08-report.md` and `docs/development/database-migrations.md`; approval for any real database migration remains separate.
 
-### M9 — Backend hardening [PHASE 9A AWAITING REVIEW]
-Phase 9A covers runtime configuration validation, startup failure handling and unused framework dependencies. Later phases may cover safe upload and filesystem edge cases; file-size and image formats; failure cleanup/reconciliation; logging/error responses and further security checks. Phase 9B and 9C have not started. Re-run meaningful end-to-end tests and explicitly record remaining production risks.
+### M9 — Backend hardening [PHASE 9B AWAITING REVIEW]
+Phase 9A is committed as `f8930be`: runtime configuration validation, startup failure handling and unused framework dependencies. Phase 9B hardens multipart completion, interrupted uploads, temporary-file cleanup, storage paths, collision handling and upload limits. Its implementation and isolated tests await review; see `docs/development/milestone-09b-report.md`. Phase 9C has not started. Upload crash recovery and database/filesystem reconciliation remain future work.
 
 ## Branching transition **after M9 approval**
 - Proposed integration branch name: `integration` (not created automatically by these documents).

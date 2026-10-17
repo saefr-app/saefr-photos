@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import { Test } from '@nestjs/testing';
 import {
   FastifyAdapter,
@@ -9,6 +17,7 @@ import { AppModule } from '../src/app.module.js';
 import { AssetsRepository } from '../src/assets/assets.repository.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { LocalStorageService } from '../src/storage/local-storage.service.js';
+import { MAX_UPLOAD_BYTES } from '../src/storage/image-limits.js';
 
 function multipartBody(
   field: string,
@@ -35,12 +44,19 @@ describe('Image upload API (e2e)', () => {
   const saveImage = vi
     .fn()
     .mockImplementation(
-      async (id: string, mimeType: string, stream: AsyncIterable<Buffer>) => {
+      async (
+        id: string,
+        mimeType: string,
+        stream: AsyncIterable<Buffer>,
+        verifyComplete?: () => Promise<void>,
+      ) => {
         let size = 0;
 
         for await (const chunk of stream) {
           size += Buffer.from(chunk).length;
         }
+
+        await verifyComplete?.();
 
         return {
           storagePath: `/storage/originals/${id}.jpg`,
@@ -51,6 +67,10 @@ describe('Image upload API (e2e)', () => {
     );
 
   const create = vi.fn().mockImplementation(async (asset) => asset);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   beforeAll(async () => {
     const moduleFixture = await Test.createTestingModule({
@@ -73,6 +93,7 @@ describe('Image upload API (e2e)', () => {
 
     app = moduleFixture.createNestApplication<NestFastifyApplication>(
       new FastifyAdapter({
+        multipart: true,
         routerOptions: {
           ignoreTrailingSlash: true,
         },
@@ -128,5 +149,67 @@ describe('Image upload API (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  it('rejects a file larger than 20 MiB before creating metadata', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/assets/upload',
+      headers: {
+        'content-type': 'multipart/form-data; boundary=saefr-test-boundary',
+      },
+      payload: multipartBody(
+        'file',
+        'large.jpg',
+        'image/jpeg',
+        Buffer.alloc(MAX_UPLOAD_BYTES + 1),
+      ),
+    });
+
+    expect(response.statusCode).toBe(413);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a multipart request without a boundary', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/assets/upload',
+      headers: {
+        'content-type': 'multipart/form-data',
+      },
+      payload: Buffer.from('incomplete form'),
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an extra multipart part after the image', async () => {
+    const complete = multipartBody(
+      'file',
+      'holiday.jpg',
+      'image/jpeg',
+      Buffer.from('test image bytes'),
+    );
+    const extra = Buffer.concat([
+      complete.subarray(0, complete.length - 4),
+      Buffer.from(
+        '\r\n--saefr-test-boundary\r\n' +
+          'Content-Disposition: form-data; name="extra"\r\n\r\n' +
+          'value\r\n--saefr-test-boundary--\r\n',
+      ),
+    ]);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/assets/upload',
+      headers: {
+        'content-type': 'multipart/form-data; boundary=saefr-test-boundary',
+      },
+      payload: extra,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(create).not.toHaveBeenCalled();
   });
 });

@@ -1,19 +1,19 @@
+import { PassThrough } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+
 import {
   BadRequestException,
   Controller,
   Get,
   Header,
+  HttpException,
   Param,
   ParseUUIDPipe,
+  PayloadTooLargeException,
   Post,
+  Req,
   StreamableFile,
-  UploadedFile,
-  UseInterceptors,
 } from '@nestjs/common';
-import {
-  FileStreamInterceptor,
-  type MultipartFileStream,
-} from '@nestjs/platform-fastify/multipart';
 import {
   ApiBody,
   ApiConsumes,
@@ -25,11 +25,51 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import type { MultipartFile } from '@fastify/multipart';
+import type { FastifyRequest } from 'fastify';
 
 import { AssetsService, type AssetContent } from './assets.service.js';
 import { AssetResponseDto } from './dto/asset-response.dto.js';
+import { MAX_UPLOAD_BYTES } from '../storage/image-limits.js';
 
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+function uploadError(error: unknown): unknown {
+  if (error instanceof HttpException) return error;
+
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? error.code
+      : undefined;
+
+  if (code === 'FST_REQ_FILE_TOO_LARGE') {
+    return new PayloadTooLargeException('File too large');
+  }
+
+  if (
+    code === 'FST_PARTS_LIMIT' ||
+    code === 'FST_FILES_LIMIT' ||
+    code === 'FST_FIELDS_LIMIT' ||
+    code === 'FST_MP_PREMATURE_CLOSE' ||
+    code === 'FST_PROTO_VIOLATION' ||
+    code === 'FST_INVALID_JSON_FIELD_ERROR' ||
+    code === 'FST_INVALID_MULTIPART_CONTENT_TYPE' ||
+    code === 'ERR_STREAM_PREMATURE_CLOSE' ||
+    code === 'ABORT_ERR' ||
+    code === 'ECONNRESET'
+  ) {
+    return new BadRequestException('Invalid multipart request');
+  }
+
+  if (
+    error instanceof Error &&
+    (error.message === 'Multipart: Boundary not found' ||
+      error.message === 'Unexpected end of multipart data' ||
+      error.message.includes('terminated early due to unexpected end'))
+  ) {
+    return new BadRequestException('Incomplete multipart request');
+  }
+
+  return error;
+}
 
 @ApiTags('assets')
 @Controller('api/v1/assets')
@@ -86,28 +126,68 @@ export class AssetsController {
     status: 415,
     description: 'Unsupported or invalid image.',
   })
-  @UseInterceptors(
-    FileStreamInterceptor('file', {
+  async upload(@Req() request: FastifyRequest): Promise<AssetResponseDto> {
+    if (!request.isMultipart()) {
+      throw new BadRequestException('Image file is required');
+    }
+
+    const parts = request.parts({
       limits: {
         fileSize: MAX_UPLOAD_BYTES,
         files: 1,
         fields: 0,
         parts: 1,
       },
-    }),
-  )
-  upload(
-    @UploadedFile() file: MultipartFileStream | undefined,
-  ): Promise<AssetResponseDto> {
-    if (!file) {
-      throw new BadRequestException('Image file is required');
-    }
-
-    return this.assetsService.upload({
-      filename: file.originalname,
-      mimeType: file.mimetype,
-      stream: file.stream,
     });
+
+    try {
+      const first = await parts.next();
+
+      if (
+        first.done ||
+        first.value.type !== 'file' ||
+        first.value.fieldname !== 'file' ||
+        !first.value.filename
+      ) {
+        if (!first.done && first.value.type === 'file') {
+          first.value.file.destroy();
+        }
+        throw new BadRequestException('Image file is required');
+      }
+
+      const file: MultipartFile = first.value;
+      const uploadStream = new PassThrough();
+      const forwarding = pipeline(file.file, uploadStream);
+      void forwarding.catch(() => undefined);
+
+      try {
+        return await this.assetsService.upload({
+          filename: file.filename,
+          mimeType: file.mimetype,
+          stream: uploadStream,
+          verifyComplete: async () => {
+            if (file.file.truncated) {
+              throw new PayloadTooLargeException('File too large');
+            }
+
+            const last = await parts.next();
+
+            if (!last.done) {
+              throw new BadRequestException('Unexpected multipart field');
+            }
+          },
+        });
+      } finally {
+        if (!uploadStream.readableEnded) {
+          file.file.destroy();
+          uploadStream.destroy();
+        }
+
+        await forwarding.catch(() => undefined);
+      }
+    } catch (error: unknown) {
+      throw uploadError(error);
+    }
   }
 
   @Get(':assetId')

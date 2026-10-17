@@ -29,6 +29,7 @@ export interface ImageUpload {
   filename: string;
   mimeType: string;
   stream: Readable;
+  verifyComplete?: () => Promise<void>;
 }
 
 @Injectable()
@@ -61,6 +62,7 @@ export class AssetsService {
       assetId,
       upload.mimeType,
       upload.stream,
+      upload.verifyComplete,
     );
 
     let asset: AssetRecord;
@@ -77,13 +79,8 @@ export class AssetsService {
     } catch (error: unknown) {
       try {
         await this.storage.deleteImage(assetId, stored.mimeType);
-      } catch (cleanupError: unknown) {
-        this.logger.error(
-          'Unable to clean up failed asset upload',
-          cleanupError instanceof Error
-            ? cleanupError.stack
-            : String(cleanupError),
-        );
+      } catch {
+        this.logger.error('Unable to clean up failed asset upload');
       }
 
       throw error;

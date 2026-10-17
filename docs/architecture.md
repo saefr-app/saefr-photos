@@ -1,13 +1,13 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** Local `refactor/nestjs-migration` working tree at committed Milestone 8 (`452473c`), with uncommitted Phase 9A runtime configuration changes on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** Local `refactor/nestjs-migration` working tree at committed Phase 9A (`f8930be`), with uncommitted Phase 9B upload and filesystem changes on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
 
 ## Current system
 - **HTTP/API:** `server-nest/` — NestJS 12 on Fastify, Node.js 24, TypeScript ESM/NodeNext. The server binds to `127.0.0.1:3000` by default; this is appropriate for unauthenticated local development only.
 - **Runtime configuration:** Nest ConfigModule loads the existing environment files and validates database, listen, environment and storage settings before application initialization. Database name, user and password are required; host, ports, environment and storage path have explicit defaults. Startup errors do not print configuration values. The migration CLI retains its separate `MIGRATION_POSTGRES_*` configuration and never runs during API startup.
 - **Database:** PostgreSQL 18 with a Kysely query builder and `pg` connection pool; root `compose.yml` starts the **database only**. NestJS currently runs on the host, not in Docker.
 - **Files:** local root `storage/originals/` contains original image bytes; `storage/thumbnails/` contains JPEG previews.
-- **Processing:** Sharp/libvips validates JPEG, PNG, WebP and generates 300px bounding-box JPEG thumbnails (quality 85). The upload endpoint currently enforces a 20 MiB multipart file limit and the storage service limits decoded images to 40 million pixels.
+- **Processing:** Sharp/libvips validates JPEG, PNG, WebP and generates 300px bounding-box JPEG thumbnails (quality 85). Multipart parsing and storage independently enforce a 20 MiB file limit; Sharp rejects images over 40 million pixels and multi-page images.
 - **Documentation:** Swagger UI at `/docs` and OpenAPI JSON at `/docs-json` when `NODE_ENV` is not `production`.
 - **Legacy code:** `server/` contains the previous FastAPI + SQLModel implementation. The existing PostgreSQL `asset` schema originated there; existing image files remain in `storage/`.
 
@@ -25,12 +25,12 @@ flowchart TD
 ```
 
 ### Upload: `POST /api/v1/assets/upload`
-1. `FileStreamInterceptor` processes a multipart `file` stream with upload limits.
-2. Controller forwards filename, claimed MIME type and stream to `AssetsService.upload()`.
+1. The controller accepts one multipart `file` part, starts its stream immediately, and enforces part and file-size limits.
+2. Controller forwards filename, claimed MIME type and stream to `AssetsService.upload()`; it also verifies the multipart parser reached the request's end before storage publishes files.
 3. Service validates/sanitizes filename, creates a UUID and calls `LocalStorageService.saveImage()`.
-4. Storage streams to a temporary original; Sharp checks actual file format/dimensions and generates a temporary thumbnail.
-5. Storage publishes both files under UUID-derived names, then service inserts the metadata record through Kysely.
-6. If DB insertion fails, the service **attempts** to clean up the new files. Cross-filesystem/DB atomicity is **not guaranteed**; crash recovery and reconciliation remain planned.
+4. Storage streams to a private temporary original with a second 20 MiB limit. Sharp checks actual file format/dimensions and generates a temporary thumbnail.
+5. After full multipart validation, storage hard-links the temporary files to UUID-derived final names. Existing final files cannot be overwritten; the service then inserts metadata through Kysely.
+6. Normal stream, parsing, image, and filesystem failures remove temporary and newly published files where the filesystem permits. If DB insertion fails, the service **attempts** to remove its new files. Cross-filesystem/DB atomicity is **not guaranteed**; crash recovery and reconciliation remain planned.
 7. Returns `201 Created` with public asset metadata (`storage_path` is never in the public response).
 
 ### Retrieval
@@ -71,9 +71,10 @@ Migration commands require dedicated `MIGRATION_POSTGRES_*` settings and databas
 ## Known limitations / not yet implemented
 - No accounts, sessions, per-user asset ownership or authorization. **Do not publicly expose** this API.
 - No asset deletion/trash or cursor pagination.
-- HTTP tests mostly mock repository/storage. The separate PostgreSQL 18 suite now verifies the migrated schema, repository behavior, legacy baselining, repeat runs, concurrency and failure cases using a disposable database. Real development migrations and restoration from a real backup were not exercised.
+- HTTP tests mostly mock repository/storage; Phase 9B also runs upload HTTP cases against real storage in isolated temporary directories. The separate PostgreSQL 18 suite verifies the migrated schema, repository behavior, legacy baselining, repeat runs, concurrency and failure cases using a disposable database. Real development migrations and restoration from a real backup were not exercised.
 - `size` remains a signed 32-bit INTEGER. No large-file or timestamp conversion was introduced. Historical development records were not inspected or changed by M8.
-- Cross-system upload durability, startup recovery, isolated filesystem/NAS support, and threat-model hardening are not complete.
+- Cross-system upload durability and startup recovery are not complete. A process/host crash can strand temporary files, one published file, or files without metadata. A database error with an uncertain commit outcome can cause compensation to remove files for a committed row. Cleanup can fail if the filesystem is unavailable or permissions change. No broad automatic deletion is implemented.
+- Local filesystem safety assumes the configured storage root and its parent are controlled by the operator; it does not defend against a privileged process replacing directories concurrently. Isolated filesystem/NAS support and a full upload resource threat model remain future work.
 - No fully Dockerized backend or Redis/BullMQ worker yet; no mobile application or ML service integrated.
 - Swagger/OpenAPI is development-only by environment convention, not an authentication mechanism.
 - Explicit `HOST` values can bind the API beyond localhost; authentication and deployment controls are still required before public exposure. Startup validates configuration but does not test database connectivity or create storage directories; readiness and first media access report those failures.
