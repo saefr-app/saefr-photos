@@ -1,6 +1,6 @@
 # Milestone 9 — Phase 9C: Logging, error handling and final verification
 
-- **Status:** Implemented; awaiting maintainer review; uncommitted
+- **Status:** Phase 9C committed as `99a8646`; focused media-stream error correction implemented and awaiting maintainer review
 - **Branch and base commit:** `refactor/nestjs-migration`, `69dbeaf` (committed Phase 9B)
 - **Date:** 2026-10-17 IST
 - **Scope:** Phase 9C as requested in this chat. No separate Phase 9C specification file exists.
@@ -30,7 +30,7 @@ No logging framework, schema change, migration execution change or new service w
 | `docs/development/milestone-09a-report.md`, `docs/development/milestone-09b-report.md` | Correct their committed status; retain historical test evidence |
 | This report and `docs/development/milestone-09-report.md` | Phase and consolidated evidence |
 
-## Verification results
+## Phase 9C verification results (before commit `99a8646`)
 
 All npm commands ran in `server-nest/` with Node.js `v24.22.0`. The repository branch was `refactor/nestjs-migration`, with a clean tree before work. The integration runner verified each uniquely named PostgreSQL 18 container's tmpfs, test-only credentials and random localhost binding before tests, then removed it. A read-only Docker listing after verification showed no remaining integration container.
 
@@ -52,6 +52,23 @@ The first runtime smoke run failed because it expected exit code 0 after SIGTERM
 
 After the initial verification, a concurrent edit removed several checks from `test/run-integration.mjs`. Its exact pre-restoration diff was saved at `/tmp/saefr-run-integration-concurrent.patch`. On maintainer instruction, the runner's name/ID, image, label, isolated credentials, tmpfs, localhost-port, signal and ownership-checked cleanup safeguards were restored. A subsequent maintainer request restored the original `--migrations` argument validation and Vitest file selection, leaving all container safeguards intact. Final reruns passed 35 tests in `test:integration` and 28 in `test:migrations`. Each run printed container removal; a `docker ps -a` query by the integration label after each returned no containers. Runner syntax, formatting and `git diff --check` passed after the final correction. The only remaining runner diff against the committed version is the concurrent inspect-by-ID formatting and equivalent Docker `--time` spelling; that diff is outside Phase 9C and excluded from its review patch.
 
+## Post-commit media-stream error correction (uncommitted)
+
+An independent review reproduced a response regression: Fastify copied `StreamableFile` image headers to its raw reply before an early stream error, and the filter's object response then failed with `FST_ERR_REP_INVALID_PAYLOAD_TYPE`. The filter now removes the stale media content type, length and disposition before sending a fixed JSON error. If headers have already been sent, it destroys the response connection without sending a second body. Focused HTTP tests cover an error before the first byte, a real localhost socket receiving partial media before failure, and unchanged successful original and thumbnail streams. No storage, database or API success path was changed.
+
+| Command | Result | Evidence after correction |
+| --- | --- | --- |
+| `npm run build` and `npm run typecheck` | PASS | Nest build and TypeScript no-emit check completed |
+| `npm run lint` and targeted `npx prettier --check src/errors/safe-http-exception.filter.ts test/errors.e2e-spec.ts` | PASS | No lint warnings or formatting differences on final code |
+| `npm run test` | PASS | 9 files, 59 tests |
+| `npm run test:e2e` | PASS | 6 files, 38 tests, including four new media-stream cases |
+| `npm run test:integration` | PASS | 2 files, 35 tests; disposable PostgreSQL 18 container removed |
+| `npm run test:migrations` | PASS | 1 file, 28 tests; separate disposable PostgreSQL 18 container removed |
+| `npm run test:runtime-smoke` | PASS | Safe invalid-config and occupied-port failures; localhost listener closed after SIGTERM |
+| `git diff --check` | PASS | No whitespace errors in the final worktree diff |
+
+A label-filtered `docker ps -a` check after each database command returned no integration containers. The existing unstaged `test/run-integration.mjs` inspect-by-ID and Docker `--time` edit was not modified by this correction. Focused injection of filesystem write and cleanup failures remains a follow-up; the stream fix did not require changing those paths.
+
 ## Security and data safety
 
 The smoke process used `POSTGRES_HOST=127.0.0.1`, a non-development test database name, and port `1`; it requested only `/health`, which does not query PostgreSQL. It used and removed an OS temporary storage root. HTTP storage tests from Phase 9B also use isolated temporary roots. The PostgreSQL integration and migration runners never use the development Compose project, named volume or application `.env`; no migration command targeted the development database. Existing metadata and photographs were not read or modified as part of this phase.
@@ -65,6 +82,7 @@ Known application errors keep appropriate 400/404/413/415/503 responses. Unexpec
 - PostgreSQL metadata and files are still not atomic. Crash recovery, ambiguous DB commit outcomes and cleanup failures remain as described in the Phase 9B report. No broad automatic media deletion was added.
 - The API has no authentication or asset authorization and is suitable only for localhost development by default. No Dockerized API deployment, Redis/BullMQ worker or production observability is implemented.
 - Startup validation does not prove live database connectivity or storage availability. `/health/ready` tests the database when called; storage errors occur on use.
+- Filesystem write and cleanup failures lack focused failure-injection tests; this remains a follow-up for a separate reviewable change.
 
 ## Repeat verification
 
@@ -84,8 +102,8 @@ The two database test commands require Docker and create only disposable Postgre
 
 ## Review gate
 
-- [ ] Maintainer reviewed Phase 9C diff and both M9 reports
+- [x] Phase 9C committed as `99a8646`; media-stream correction awaits maintainer review
 - [x] Required checks passed with recorded evidence
 - [x] Development database, Docker volume and stored photographs preserved
-- [ ] Commit or push approved
+- [ ] Media-stream correction commit or push approved
 - [x] Integration branch and authentication work not started

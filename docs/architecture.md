@@ -1,6 +1,6 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** Local `refactor/nestjs-migration` working tree at committed Phase 9B (`69dbeaf`), with uncommitted Phase 9C logging and error-handling changes on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** Local `refactor/nestjs-migration` working tree at committed Phase 9C (`99a8646`), with an uncommitted media-stream error correction awaiting review on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
 
 ## Current system
 - **HTTP/API:** `server-nest/` — NestJS 12 on Fastify, Node.js 24, TypeScript ESM/NodeNext. The server binds to `127.0.0.1:3000` by default; this is appropriate for unauthenticated local development only.
@@ -9,7 +9,7 @@
 - **Files:** local root `storage/originals/` contains original image bytes; `storage/thumbnails/` contains JPEG previews.
 - **Processing:** Sharp/libvips validates JPEG, PNG, WebP and generates 300px bounding-box JPEG thumbnails (quality 85). Multipart parsing and storage independently enforce a 20 MiB file limit; Sharp rejects images over 40 million pixels and multi-page images.
 - **Documentation:** Swagger UI at `/docs` and OpenAPI JSON at `/docs-json` when `NODE_ENV` is not `production`.
-- **Errors and logs:** Nest's app-wide exception filter returns stable, sanitized HTTP error bodies. Unexpected request failures log a known route pattern and allowlisted error category, never raw exception objects. Readiness, storage cleanup, PostgreSQL idle-client and startup failures likewise avoid raw driver messages and filesystem paths.
+- **Errors and logs:** Nest's app-wide exception filter returns stable, sanitized HTTP error bodies. An early media-stream failure clears stale media headers before the JSON error is sent; a failure after headers are sent closes the connection. Unexpected request failures log a known route pattern and allowlisted error category, never raw exception objects. Readiness, storage cleanup, PostgreSQL idle-client and startup failures likewise avoid raw driver messages and filesystem paths.
 - **Legacy code:** `server/` contains the previous FastAPI + SQLModel implementation. The existing PostgreSQL `asset` schema originated there; existing image files remain in `storage/`.
 
 ## Request flow
@@ -76,6 +76,7 @@ Migration commands require dedicated `MIGRATION_POSTGRES_*` settings and databas
 - HTTP tests mostly mock repository/storage; Phase 9B also runs upload HTTP cases against real storage in isolated temporary directories. The separate PostgreSQL 18 suite verifies the migrated schema, repository behavior, legacy baselining, repeat runs, concurrency and failure cases using a disposable database. Real development migrations and restoration from a real backup were not exercised.
 - `size` remains a signed 32-bit INTEGER. No large-file or timestamp conversion was introduced. Historical development records were not inspected or changed by M8.
 - Cross-system upload durability and startup recovery are not complete. A process/host crash can strand temporary files, one published file, or files without metadata. A database error with an uncertain commit outcome can cause compensation to remove files for a committed row. Cleanup can fail if the filesystem is unavailable or permissions change. No broad automatic deletion is implemented.
+- Focused failure-injection tests for filesystem write and cleanup failures remain to be added; existing tests cover stream interruptions, invalid images, collisions and simulated database failures.
 - Local filesystem safety assumes the configured storage root and its parent are controlled by the operator; it does not defend against a privileged process replacing directories concurrently. Isolated filesystem/NAS support and a full upload resource threat model remain future work.
 - No fully Dockerized backend or Redis/BullMQ worker yet; no mobile application or ML service integrated.
 - Swagger/OpenAPI is development-only by environment convention, not an authentication mechanism.

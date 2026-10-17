@@ -100,9 +100,16 @@ export class SafeHttpExceptionFilter implements ExceptionFilter {
     }
 
     if (reply.sent || reply.raw.headersSent) {
-      reply.raw.end();
+      reply.raw.destroy();
       return;
     }
+
+    // Fastify may have copied StreamableFile headers to the raw response
+    // before a stream fails, even though no response bytes were sent.
+    reply.removeHeader('content-type');
+    reply.removeHeader('content-length');
+    reply.removeHeader('content-disposition');
+    reply.type('application/json');
 
     const error = STATUS_LABELS[safeStatus] ?? 'Request failed';
     const message =

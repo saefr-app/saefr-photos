@@ -1,3 +1,6 @@
+import { connect } from 'node:net';
+import { PassThrough, Readable } from 'node:stream';
+
 import { HttpException, Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import {
@@ -28,6 +31,7 @@ describe('Safe HTTP errors (e2e)', () => {
   const findAll = vi.fn();
   const findFileById = vi.fn();
   const openOriginal = vi.fn();
+  const openThumbnail = vi.fn();
   const ping = vi.fn();
   let errorLog: ReturnType<typeof vi.spyOn>;
   let warningLog: ReturnType<typeof vi.spyOn>;
@@ -41,7 +45,7 @@ describe('Safe HTTP errors (e2e)', () => {
       .overrideProvider(AssetsRepository)
       .useValue({ findAll, findFileById })
       .overrideProvider(LocalStorageService)
-      .useValue({ openOriginal })
+      .useValue({ openOriginal, openThumbnail })
       .compile();
 
     app = moduleFixture.createNestApplication<NestFastifyApplication>(
@@ -110,6 +114,125 @@ describe('Safe HTTP errors (e2e)', () => {
     );
     expect(JSON.stringify(errorLog.mock.calls)).not.toContain(assetId);
   });
+
+  it('sends safe JSON when a media stream fails before its first byte', async () => {
+    findFileById.mockResolvedValueOnce({
+      id: assetId,
+      mime_type: 'image/jpeg',
+      storage_path: '/private/photos/original.jpg',
+    });
+    const failure = Object.assign(new Error(secret), { code: 'EIO' });
+    openOriginal.mockResolvedValueOnce({
+      stream: new Readable({
+        read() {
+          this.destroy(failure);
+        },
+      }),
+      size: 12345,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/v1/assets/${assetId}/original`,
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.headers['content-type']).toMatch(/^application\/json/);
+    expect(response.headers['content-disposition']).toBeUndefined();
+    expect(Number(response.headers['content-length'])).toBe(
+      Buffer.byteLength(response.body),
+    );
+    expect(response.json()).toEqual({
+      statusCode: 500,
+      message: 'Internal server error',
+      error: 'Internal Server Error',
+    });
+    expect(response.body).not.toContain(secret);
+    expect(response.body).not.toContain('FST_ERR_REP_INVALID_PAYLOAD_TYPE');
+    expect(errorLog).toHaveBeenCalledWith(
+      'Request failure: GET /api/v1/assets/:assetId/original; EIO',
+    );
+  });
+
+  it('closes an already started media response without sending JSON', async () => {
+    findFileById.mockResolvedValueOnce({
+      id: assetId,
+      mime_type: 'image/jpeg',
+      storage_path: '/private/photos/original.jpg',
+    });
+    const stream = new PassThrough();
+    openOriginal.mockResolvedValueOnce({ stream, size: 12345 });
+
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    const address = app.getHttpServer().address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Test server did not bind a TCP port');
+    }
+
+    const socket = connect(address.port, '127.0.0.1');
+    let received = Buffer.alloc(0);
+    socket.on('data', (chunk: Buffer) => {
+      received = Buffer.concat([received, chunk]);
+    });
+    socket.on('error', () => {
+      // A reset is expected when an incomplete response is terminated.
+    });
+
+    try {
+      socket.write(
+        `GET /api/v1/assets/${assetId}/original HTTP/1.1\r\n` +
+          'Host: 127.0.0.1\r\nConnection: close\r\n\r\n',
+      );
+      stream.write('first');
+
+      await vi.waitFor(() => {
+        expect(received.toString()).toContain('\r\n\r\nfirst');
+      });
+
+      stream.destroy(new Error(secret));
+      await vi.waitFor(() => {
+        expect(socket.destroyed).toBe(true);
+      });
+
+      const wire = received.toString();
+      expect(wire).toMatch(/^HTTP\/1\.1 200 /);
+      expect(wire).toContain('first');
+      expect(wire).not.toContain('HTTP/1.1 500');
+      expect(wire).not.toContain('Internal server error');
+      expect(wire).not.toContain(secret);
+    } finally {
+      socket.destroy();
+      stream.destroy();
+    }
+  });
+
+  it.each(['original', 'thumbnail'])(
+    'preserves successful %s streaming',
+    async (kind) => {
+      const bytes = Buffer.from('successful-private-image-bytes');
+      findFileById.mockResolvedValueOnce({
+        id: assetId,
+        mime_type: 'image/jpeg',
+        storage_path: '/private/photos/original.jpg',
+      });
+      const stored = { stream: Readable.from([bytes]), size: bytes.length };
+      if (kind === 'original') {
+        openOriginal.mockResolvedValueOnce(stored);
+      } else {
+        openThumbnail.mockResolvedValueOnce(stored);
+      }
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/v1/assets/${assetId}/${kind}`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toBe('image/jpeg');
+      expect(Number(response.headers['content-length'])).toBe(bytes.length);
+      expect(response.rawPayload).toEqual(bytes);
+    },
+  );
 
   it('sanitizes an arbitrary HTTP exception message', async () => {
     findAll.mockRejectedValueOnce(new HttpException(secret, 400));

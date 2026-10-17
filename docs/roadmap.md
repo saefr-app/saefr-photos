@@ -1,6 +1,6 @@
 # Saefr Photos — Roadmap and Milestone Status
 
-**Reference:** Local `refactor/nestjs-migration` working tree based on committed Phase 9B (`69dbeaf`), with uncommitted Phase 9C changes awaiting review on 2026-10-17 IST. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
+**Reference:** Local `refactor/nestjs-migration` working tree based on committed Phase 9C (`99a8646`), with an uncommitted media-stream error correction awaiting review on 2026-10-17 IST. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
 
 ## Completed: initial NestJS functional migration
 - NestJS 12 + Fastify + TypeScript foundation, Node.js 24.
@@ -18,8 +18,8 @@ Committed as `977514c`. The maintainer subsequently verified the real legacy sch
 ### M8 — Versioned Kysely database migrations [COMMITTED]
 Committed as `452473c`. Standalone Kysely migration commands, fresh-install schema creation, explicit legacy baselining, metadata/history validation and repeat/concurrency/failure tests are implemented. API startup does not run migrations. Existing development data has not been migrated. See `docs/development/milestone-08-report.md` and `docs/development/database-migrations.md`; approval for any real database migration remains separate.
 
-### M9 — Backend hardening [PHASE 9C AWAITING REVIEW]
-Phase 9A is committed as `f8930be`: runtime configuration validation, startup failure handling and unused framework dependencies. Phase 9B is committed as `69dbeaf`: multipart completion, interrupted uploads, temporary-file cleanup, storage paths, collision handling and upload limits. Phase 9C adds sanitized error responses and logging, focused error tests and a startup/shutdown smoke check; its implementation awaits review. See the three phase reports and `docs/development/milestone-09-report.md`. Upload crash recovery and database/filesystem reconciliation remain future work.
+### M9 — Backend hardening [STREAM ERROR CORRECTION AWAITING REVIEW]
+Phase 9A is committed as `f8930be`: runtime configuration validation, startup failure handling and unused framework dependencies. Phase 9B is committed as `69dbeaf`: multipart completion, interrupted uploads, temporary-file cleanup, storage paths, collision handling and upload limits. Phase 9C is committed as `99a8646`: sanitized error responses and logging, focused error tests and a startup/shutdown smoke check. A focused correction for early media-stream errors awaits review. See the three phase reports and `docs/development/milestone-09-report.md`. Upload crash recovery, database/filesystem reconciliation and targeted filesystem failure-injection tests remain future work.
 
 ## Branching transition **after M9 approval**
 - Proposed integration branch name: `integration` (not created automatically by these documents).
