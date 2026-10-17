@@ -20,6 +20,7 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "test:integration": "npm run build && node ./test/run-integration.mjs",
+    "test:runtime-smoke": "npm run build && node ./test/runtime-smoke.mjs",
     "test:migrations": "npm run build && node ./test/run-integration.mjs --migrations",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:status": "npm run build && node dist/database/migrations/cli.js status",

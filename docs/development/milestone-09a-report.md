@@ -1,6 +1,6 @@
 # Milestone 9 — Phase 9A: Runtime configuration and dependency hardening
 
-- **Status:** Awaiting maintainer review; uncommitted
+- **Status:** Committed as `f8930be` after maintainer review; verification below records the pre-commit implementation
 - **Branch and base commit:** `refactor/nestjs-migration`, `452473c` (committed M8)
 - **Date:** 2026-10-17 IST
 - **Scope:** Phase 9A only, as requested in this chat. No separate Phase 9A specification file existed.
@@ -43,7 +43,7 @@ The first integration run **failed** during setup for all 28 migration scenarios
 
 The integration runner used uniquely named PostgreSQL 18 containers with tmpfs data, random localhost ports and test-only credentials; it did not use the development Compose project, volume or `.env`. A read-only Docker listing after the failed run showed no leftover labeled test container. No command migrated or queried the existing development database, and no photo files were changed. Database schema, migration code and public API contracts were preserved. Only explicitly configured `HOST` can bind beyond localhost; public exposure remains unsafe until authentication and authorization exist.
 
-Startup validates syntax and presence, not live database connectivity or filesystem access. Database readiness is still checked by `/health/ready`, and storage errors occur on use. Nest also logs a stack for a validation exception, but the validator's message contains only setting names and fixed guidance. Shutdown-hook behavior under a real signal and successful startup against a real deployment were not manually exercised. Phase 9B and 9C remain unstarted.
+Startup validates syntax and presence, not live database connectivity or filesystem access. Database readiness is still checked by `/health/ready`, and storage errors occur on use. Nest also logs a stack for a validation exception, but the validator's message contains only setting names and fixed guidance. Shutdown-hook behavior under a real signal and successful startup against a real deployment were not manually exercised **at the time of this report**. Phase 9B and 9C were unstarted then.
 
 ## Repeating checks
 
@@ -60,10 +60,10 @@ npm audit --audit-level=low
 
 The integration command requires Docker and creates only its isolated disposable PostgreSQL container. Do not run migration commands against the development database as part of this verification.
 
-## Review gate
+## Review gate (historical Phase 9A snapshot)
 
-- [ ] Maintainer reviewed Phase 9A diff
+- [x] Maintainer reviewed Phase 9A diff
 - [x] Required automated checks passed on the final implementation
 - [x] M8 committed status and current architecture/roadmap updated
-- [ ] Commit or push approved
-- [x] Phase 9B and 9C not started
+- [x] Phase 9A commit approved and completed as `f8930be`; push status is not asserted here
+- [x] Phase 9B and 9C not started at the time of this report

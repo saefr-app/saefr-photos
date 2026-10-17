@@ -4,6 +4,7 @@ import { Kysely, PostgresDialect, sql } from 'kysely';
 import { Pool } from 'pg';
 
 import type { Database } from './database.types.js';
+import { safeErrorCode } from '../errors/safe-error-code.js';
 
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
@@ -23,8 +24,10 @@ export class DatabaseService implements OnModuleDestroy {
       idleTimeoutMillis: 30000,
     });
 
-    pool.on('error', () => {
-      this.logger.error('Unexpected PostgreSQL idle client error');
+    pool.on('error', (error: unknown) => {
+      this.logger.error(
+        `Unexpected PostgreSQL idle client error; ${safeErrorCode(error)}`,
+      );
     });
 
     this.db = new Kysely<Database>({
@@ -39,6 +42,13 @@ export class DatabaseService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.db.destroy();
+    try {
+      await this.db.destroy();
+    } catch (error: unknown) {
+      this.logger.error(
+        `PostgreSQL pool shutdown failed; ${safeErrorCode(error)}`,
+      );
+      throw new Error('PostgreSQL pool shutdown failed');
+    }
   }
 }

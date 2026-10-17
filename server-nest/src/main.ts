@@ -7,6 +7,7 @@ import {
 
 import { setupSwagger } from './openapi/swagger.js';
 import { RuntimeConfigError } from './runtime-config.js';
+import { safeErrorCode } from './errors/safe-error-code.js';
 
 async function bootstrap(): Promise<void> {
   let app: NestFastifyApplication | undefined;
@@ -40,14 +41,16 @@ async function bootstrap(): Promise<void> {
   } catch (error: unknown) {
     try {
       await app?.close();
-    } catch {
-      console.error('Application cleanup failed after startup error');
+    } catch (cleanupError: unknown) {
+      console.error(
+        `Application cleanup failed after startup error; ${safeErrorCode(cleanupError)}`,
+      );
     }
 
     if (error instanceof RuntimeConfigError) {
       console.error(error.message);
     } else {
-      console.error('Application startup failed');
+      console.error(`Application startup failed; ${safeErrorCode(error)}`);
     }
 
     process.exitCode = 1;

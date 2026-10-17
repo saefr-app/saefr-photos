@@ -1,9 +1,11 @@
 import {
   Injectable,
+  Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 
 import { DatabaseService } from '../database/database.service.js';
+import { safeErrorCode } from '../errors/safe-error-code.js';
 
 export interface HealthResponse {
   status: 'ok';
@@ -17,9 +19,9 @@ export interface ReadinessResponse {
 
 @Injectable()
 export class HealthService {
-  constructor(
-    private readonly databaseService: DatabaseService,
-  ) {}
+  private readonly logger = new Logger(HealthService.name);
+
+  constructor(private readonly databaseService: DatabaseService) {}
 
   getHealth(): HealthResponse {
     return {
@@ -31,10 +33,9 @@ export class HealthService {
   async getReadiness(): Promise<ReadinessResponse> {
     try {
       await this.databaseService.ping();
-    } catch {
-      throw new ServiceUnavailableException(
-        'Database unavailable',
-      );
+    } catch (error: unknown) {
+      this.logger.warn(`Readiness check failed; ${safeErrorCode(error)}`);
+      throw new ServiceUnavailableException('Database unavailable');
     }
 
     return {

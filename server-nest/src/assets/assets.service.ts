@@ -20,6 +20,7 @@ import {
   LocalStorageService,
   type StoredFile,
 } from '../storage/local-storage.service.js';
+import { safeErrorCode } from '../errors/safe-error-code.js';
 
 export interface AssetContent extends StoredFile {
   contentType: string;
@@ -79,8 +80,10 @@ export class AssetsService {
     } catch (error: unknown) {
       try {
         await this.storage.deleteImage(assetId, stored.mimeType);
-      } catch {
-        this.logger.error('Unable to clean up failed asset upload');
+      } catch (cleanupError: unknown) {
+        this.logger.error(
+          `Unable to clean up failed asset upload; ${safeErrorCode(cleanupError)}`,
+        );
       }
 
       throw error;

@@ -17,6 +17,7 @@ import { ConfigService } from '@nestjs/config';
 import sharp, { type Metadata } from 'sharp';
 
 import { MAX_IMAGE_PIXELS, MAX_UPLOAD_BYTES } from './image-limits.js';
+import { safeErrorCode } from '../errors/safe-error-code.js';
 
 export interface StoredFile {
   stream: Readable;
@@ -196,8 +197,14 @@ export class LocalStorageService {
         ...(originalPublished ? [rm(originalPath, { force: true })] : []),
       ]);
 
-      if (publishedCleanup.some((result) => result.status === 'rejected')) {
-        this.logger.error('Unable to remove files after failed upload');
+      const failedPublished = publishedCleanup.find(
+        (result) => result.status === 'rejected',
+      );
+
+      if (failedPublished?.status === 'rejected') {
+        this.logger.error(
+          `Unable to remove files after failed upload; ${safeErrorCode(failedPublished.reason)}`,
+        );
       }
 
       throw error;
@@ -207,8 +214,14 @@ export class LocalStorageService {
         rm(temporaryThumbnail, { force: true }),
       ]);
 
-      if (temporaryCleanup.some((result) => result.status === 'rejected')) {
-        this.logger.error('Unable to remove temporary upload files');
+      const failedTemporary = temporaryCleanup.find(
+        (result) => result.status === 'rejected',
+      );
+
+      if (failedTemporary?.status === 'rejected') {
+        this.logger.error(
+          `Unable to remove temporary upload files; ${safeErrorCode(failedTemporary.reason)}`,
+        );
       }
     }
   }

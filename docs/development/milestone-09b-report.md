@@ -1,6 +1,6 @@
 # Milestone 9 — Phase 9B: Upload and filesystem safety hardening
 
-- **Status:** Implemented; awaiting maintainer review; uncommitted
+- **Status:** Committed as `69dbeaf` after maintainer review; verification below records the pre-commit implementation
 - **Branch and base commit:** `refactor/nestjs-migration`, `f8930be` (committed Phase 9A)
 - **Date:** 2026-10-17 IST
 - **Scope:** Phase 9B only. No separate Phase 9B specification file exists.
@@ -65,10 +65,10 @@ npm run test:integration
 
 The integration command requires Docker and uses only its verified disposable PostgreSQL container. It must not be replaced with migrations or tests pointed at the development database. Manual checks before deployment: inspect storage-root ownership/permissions and test backup/recovery for interrupted publication and uncertain DB commits in a separate installation.
 
-## Review gate
+## Review gate (historical Phase 9B snapshot)
 
-- [ ] Maintainer reviewed Phase 9B diff
+- [x] Maintainer reviewed Phase 9B diff
 - [x] Required automated checks passed on the implementation
 - [x] Development database, Docker volume and stored photographs preserved
-- [ ] Commit or push approved
-- [x] Phase 9C not started
+- [x] Phase 9B commit approved and completed as `69dbeaf`; push status is not asserted here
+- [x] Phase 9C not started at the time of this report

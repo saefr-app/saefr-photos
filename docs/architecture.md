@@ -1,6 +1,6 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** Local `refactor/nestjs-migration` working tree at committed Phase 9A (`f8930be`), with uncommitted Phase 9B upload and filesystem changes on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** Local `refactor/nestjs-migration` working tree at committed Phase 9B (`69dbeaf`), with uncommitted Phase 9C logging and error-handling changes on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
 
 ## Current system
 - **HTTP/API:** `server-nest/` — NestJS 12 on Fastify, Node.js 24, TypeScript ESM/NodeNext. The server binds to `127.0.0.1:3000` by default; this is appropriate for unauthenticated local development only.
@@ -9,6 +9,7 @@
 - **Files:** local root `storage/originals/` contains original image bytes; `storage/thumbnails/` contains JPEG previews.
 - **Processing:** Sharp/libvips validates JPEG, PNG, WebP and generates 300px bounding-box JPEG thumbnails (quality 85). Multipart parsing and storage independently enforce a 20 MiB file limit; Sharp rejects images over 40 million pixels and multi-page images.
 - **Documentation:** Swagger UI at `/docs` and OpenAPI JSON at `/docs-json` when `NODE_ENV` is not `production`.
+- **Errors and logs:** Nest's app-wide exception filter returns stable, sanitized HTTP error bodies. Unexpected request failures log a known route pattern and allowlisted error category, never raw exception objects. Readiness, storage cleanup, PostgreSQL idle-client and startup failures likewise avoid raw driver messages and filesystem paths.
 - **Legacy code:** `server/` contains the previous FastAPI + SQLModel implementation. The existing PostgreSQL `asset` schema originated there; existing image files remain in `storage/`.
 
 ## Request flow
@@ -47,6 +48,7 @@ server-nest/
     main.ts              # app bootstrap, Fastify, Swagger setup
     app.module.ts        # Config, Health, Assets
     runtime-config.ts    # validated API runtime settings and defaults
+    errors/              # safe HTTP exception responses and log categories
     assets/              # HTTP controller, orchestration, Kysely repository, DTO
     database/            # connection pool, Kysely types, DB ping
       migrations/        # standalone CLI, schema checks, immutable versions
@@ -78,6 +80,8 @@ Migration commands require dedicated `MIGRATION_POSTGRES_*` settings and databas
 - No fully Dockerized backend or Redis/BullMQ worker yet; no mobile application or ML service integrated.
 - Swagger/OpenAPI is development-only by environment convention, not an authentication mechanism.
 - Explicit `HOST` values can bind the API beyond localhost; authentication and deployment controls are still required before public exposure. Startup validates configuration but does not test database connectivity or create storage directories; readiness and first media access report those failures.
+- The app handles SIGTERM through Nest shutdown hooks and closes its HTTP listener and Kysely pool. The runtime smoke test uses fake database settings and checks listener closure; it does not prove behavior during a host crash, blocked I/O or a real production deployment. An error after streaming response headers have been sent cannot be turned into a fresh JSON error response.
+- Logs retain safe route/category diagnostics but do not yet have request correlation, durable collection or alerting. Framework errors outside Nest's request exception pipeline may use Fastify's own response handling; deployment-facing error behavior needs review with a secured production stack.
 
 ## Documentation rule
 Source code and actual test observations supersede stale diagrams. Update this file when architecture changes, and mark new capabilities as **planned** until implemented and verified.
