@@ -57,7 +57,9 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     expect(identity.rows[0].version).toBeLessThan(190000);
     migrationEnv = {
       MIGRATION_POSTGRES_HOST: '127.0.0.1',
-      MIGRATION_POSTGRES_PORT: config.get<string>('POSTGRES_PORT'),
+      MIGRATION_POSTGRES_PORT: String(
+        config.getOrThrow<number>('POSTGRES_PORT'),
+      ),
       MIGRATION_POSTGRES_USER: config.get<string>('POSTGRES_USER'),
       MIGRATION_POSTGRES_PASSWORD: config.get<string>('POSTGRES_PASSWORD'),
     };

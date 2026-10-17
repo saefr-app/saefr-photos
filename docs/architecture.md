@@ -1,9 +1,10 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** Local `refactor/nestjs-migration` working tree based on `977514c` (completed M7), with uncommitted Milestone 8 migration changes verified on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** Local `refactor/nestjs-migration` working tree at committed Milestone 8 (`452473c`), with uncommitted Phase 9A runtime configuration changes on 2026-10-17 IST. Update this document after substantive architecture changes. **Implemented** and **planned** are deliberately separated.
 
 ## Current system
 - **HTTP/API:** `server-nest/` — NestJS 12 on Fastify, Node.js 24, TypeScript ESM/NodeNext. The server binds to `127.0.0.1:3000` by default; this is appropriate for unauthenticated local development only.
+- **Runtime configuration:** Nest ConfigModule loads the existing environment files and validates database, listen, environment and storage settings before application initialization. Database name, user and password are required; host, ports, environment and storage path have explicit defaults. Startup errors do not print configuration values. The migration CLI retains its separate `MIGRATION_POSTGRES_*` configuration and never runs during API startup.
 - **Database:** PostgreSQL 18 with a Kysely query builder and `pg` connection pool; root `compose.yml` starts the **database only**. NestJS currently runs on the host, not in Docker.
 - **Files:** local root `storage/originals/` contains original image bytes; `storage/thumbnails/` contains JPEG previews.
 - **Processing:** Sharp/libvips validates JPEG, PNG, WebP and generates 300px bounding-box JPEG thumbnails (quality 85). The upload endpoint currently enforces a 20 MiB multipart file limit and the storage service limits decoded images to 40 million pixels.
@@ -45,6 +46,7 @@ server-nest/
   src/
     main.ts              # app bootstrap, Fastify, Swagger setup
     app.module.ts        # Config, Health, Assets
+    runtime-config.ts    # validated API runtime settings and defaults
     assets/              # HTTP controller, orchestration, Kysely repository, DTO
     database/            # connection pool, Kysely types, DB ping
       migrations/        # standalone CLI, schema checks, immutable versions
@@ -74,6 +76,7 @@ Migration commands require dedicated `MIGRATION_POSTGRES_*` settings and databas
 - Cross-system upload durability, startup recovery, isolated filesystem/NAS support, and threat-model hardening are not complete.
 - No fully Dockerized backend or Redis/BullMQ worker yet; no mobile application or ML service integrated.
 - Swagger/OpenAPI is development-only by environment convention, not an authentication mechanism.
+- Explicit `HOST` values can bind the API beyond localhost; authentication and deployment controls are still required before public exposure. Startup validates configuration but does not test database connectivity or create storage directories; readiness and first media access report those failures.
 
 ## Documentation rule
 Source code and actual test observations supersede stale diagrams. Update this file when architecture changes, and mark new capabilities as **planned** until implemented and verified.

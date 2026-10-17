@@ -1,6 +1,6 @@
 # Saefr Photos — Roadmap and Milestone Status
 
-**Reference:** Local `refactor/nestjs-migration` working tree based on `977514c`, with uncommitted Milestone 8 migration changes verified on 2026-10-17 IST. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
+**Reference:** Local `refactor/nestjs-migration` working tree based on committed Milestone 8 (`452473c`), with uncommitted Phase 9A changes awaiting review on 2026-10-17 IST. This is the approved development direction, not a delivery date or proof of unfinished features. Update status after verification.
 
 ## Completed: initial NestJS functional migration
 - NestJS 12 + Fastify + TypeScript foundation, Node.js 24.
@@ -15,11 +15,11 @@
 ### M7 — Real PostgreSQL integration tests [COMPLETED]
 Committed as `977514c`. The maintainer subsequently verified the real legacy schema with `psql`, resolving M7's schema uncertainty. See `docs/development/milestone-07-report.md` for the original test evidence and cleanup limitations.
 
-### M8 — Versioned Kysely database migrations [AWAITING REVIEW]
-Implemented standalone Kysely migration commands, fresh-install schema creation, explicit legacy baselining, metadata/history validation and repeat/concurrency/failure tests. API startup does not run migrations. Existing development data has not been migrated. See `docs/development/milestone-08-report.md` and `docs/development/database-migrations.md`; approval for any real database migration remains separate.
+### M8 — Versioned Kysely database migrations [COMMITTED]
+Committed as `452473c`. Standalone Kysely migration commands, fresh-install schema creation, explicit legacy baselining, metadata/history validation and repeat/concurrency/failure tests are implemented. API startup does not run migrations. Existing development data has not been migrated. See `docs/development/milestone-08-report.md` and `docs/development/database-migrations.md`; approval for any real database migration remains separate.
 
-### M9 — Backend hardening [PLANNED]
-Configuration validation; safe upload and filesystem edge cases; file-size and image formats; failure cleanup/reconciliation; logging/error responses; cleanup of unused Express-related dependencies; security/configuration verification. Split into smaller commits if necessary. Re-run meaningful end-to-end tests and explicitly record remaining production risks.
+### M9 — Backend hardening [PHASE 9A AWAITING REVIEW]
+Phase 9A covers runtime configuration validation, startup failure handling and unused framework dependencies. Later phases may cover safe upload and filesystem edge cases; file-size and image formats; failure cleanup/reconciliation; logging/error responses and further security checks. Phase 9B and 9C have not started. Re-run meaningful end-to-end tests and explicitly record remaining production risks.
 
 ## Branching transition **after M9 approval**
 - Proposed integration branch name: `integration` (not created automatically by these documents).

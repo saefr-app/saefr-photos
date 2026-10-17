@@ -31,13 +31,9 @@ describe('LocalStorageService', () => {
     await mkdir(join(root, 'originals'));
     await mkdir(join(root, 'thumbnails'));
 
-    const config = {
-      get: (key: string) => {
-        return key === 'STORAGE_ROOT' ? root : undefined;
-      },
-    } as unknown as ConfigService;
-
-    service = new LocalStorageService(config);
+    service = new LocalStorageService(
+      new ConfigService({ STORAGE_ROOT: root }),
+    );
   });
 
   afterEach(async () => {

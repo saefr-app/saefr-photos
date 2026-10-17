@@ -23,11 +23,9 @@ describe('LocalStorageService image uploads', () => {
     await mkdir(join(root, 'originals'));
     await mkdir(join(root, 'thumbnails'));
 
-    const config = {
-      get: (key: string) => (key === 'STORAGE_ROOT' ? root : undefined),
-    } as unknown as ConfigService;
-
-    storage = new LocalStorageService(config);
+    storage = new LocalStorageService(
+      new ConfigService({ STORAGE_ROOT: root }),
+    );
 
     image = await sharp({
       create: {

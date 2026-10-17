@@ -48,10 +48,7 @@ export class LocalStorageService {
   private readonly storageRoot: string;
 
   constructor(config: ConfigService) {
-    this.storageRoot = resolve(
-      config.get<string>('STORAGE_ROOT') ??
-        resolve(process.cwd(), '../storage'),
-    );
+    this.storageRoot = resolve(config.getOrThrow<string>('STORAGE_ROOT'));
   }
 
   async saveImage(

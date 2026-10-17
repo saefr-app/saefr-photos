@@ -67,7 +67,7 @@ export function testConfig(): ConfigService {
   // this instance never loads .env.
   const config = new ConfigService({
     POSTGRES_HOST: '127.0.0.1',
-    POSTGRES_PORT: port,
+    POSTGRES_PORT: Number(port),
     POSTGRES_DB: name,
     POSTGRES_USER: user,
     POSTGRES_PASSWORD: password,

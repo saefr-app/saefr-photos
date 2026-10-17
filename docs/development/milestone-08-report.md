@@ -1,10 +1,12 @@
 # Milestone 08 — Database migrations
 
-- **Status:** Awaiting maintainer review
+- **Status:** Committed after maintainer review; applying migrations to the existing development database remains a separate approval decision
 - **Branch and base commit:** `refactor/nestjs-migration`, `977514c`
-- **Implemented commit:** None; M8 changes are uncommitted
+- **Implemented commit:** `452473c` (`feat: add versioned Kysely database migrations`)
 - **Date:** 2026-10-17 IST
 - **Scope:** The maintainer's M8 request and verified legacy schema supplied in this chat; no separate M8 specification file existed in the repository.
+
+**Post-review status update (2026-10-17 IST):** M8 was committed as `452473c`. The verification evidence below records the pre-commit implementation run; this status update does not claim any development-database migration.
 
 ## Implementation overview
 
@@ -115,9 +117,9 @@ Node.js 24, installed npm dependencies and a running Docker daemon are required.
 
 ## Review gate
 
-- [ ] Maintainer reviewed implementation, schema validator and baseline behavior
+- [x] Maintainer reviewed implementation, schema validator and baseline behavior
 - [x] Required automated verification passed
 - [x] Current architecture, roadmap and developer instructions updated
-- [ ] Commit/push explicitly approved
+- [x] Commit approved and completed as `452473c`; this report does not assert a push
 - [ ] Any real database migration separately approved with a recovery plan
-- [x] Milestone 9 not started
+- [x] Milestone 9 was not started before M8 approval; Phase 9A began after commit `452473c`

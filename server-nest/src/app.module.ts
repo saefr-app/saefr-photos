@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 
 import { AssetsModule } from './assets/assets.module.js';
 import { HealthModule } from './health/health.module.js';
+import { validateRuntimeConfig } from './runtime-config.js';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { HealthModule } from './health/health.module.js';
         resolve(process.cwd(), '.env'),
       ],
       cache: true,
+      validate: validateRuntimeConfig,
     }),
     HealthModule,
     AssetsModule,
