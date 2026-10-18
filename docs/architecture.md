@@ -78,7 +78,7 @@ Migration commands require dedicated `MIGRATION_POSTGRES_*` settings and databas
 - Cross-system upload durability and startup recovery are not complete. A process/host crash can strand temporary files, one published file, or files without metadata. A database error with an uncertain commit outcome can cause compensation to remove files for a committed row. Cleanup can fail if the filesystem is unavailable or permissions change. No broad automatic deletion is implemented.
 - Focused failure-injection tests for filesystem write and cleanup failures remain to be added; existing tests cover stream interruptions, invalid images, collisions and simulated database failures.
 - Local filesystem safety assumes the configured storage root and its parent are controlled by the operator; it does not defend against a privileged process replacing directories concurrently. Isolated filesystem/NAS support and a full upload resource threat model remain future work.
-- No fully Dockerized backend or Redis/BullMQ worker yet; no mobile application or ML service integrated.
+- The core ML candidate now supplies a separate Python inference service and Node Redis/BullMQ worker/coordinator with its own derived SQLite index/cache. The NestJS upload bridge is opt-in and disabled by default. The canonical backend is not yet a fully Dockerized secure alpha; no mobile application is integrated. See the ML section below.
 - Swagger/OpenAPI is development-only by environment convention, not an authentication mechanism.
 - Explicit `HOST` values can bind the API beyond localhost; authentication and deployment controls are still required before public exposure. Startup validates configuration but does not test database connectivity or create storage directories; readiness and first media access report those failures.
 - The app handles SIGTERM through Nest shutdown hooks and closes its HTTP listener and Kysely pool. The runtime smoke test uses fake database settings and checks listener closure; it does not prove behavior during a host crash, blocked I/O or a real production deployment. An error after streaming response headers have been sent cannot be turned into a fresh JSON error response.
@@ -86,3 +86,23 @@ Migration commands require dedicated `MIGRATION_POSTGRES_*` settings and databas
 
 ## Documentation rule
 Source code and actual test observations supersede stale diagrams. Update this file when architecture changes, and mark new capabilities as **planned** until implemented and verified.
+
+## Optional core ML candidate
+
+`machine-learning/` performs pinned local CLIP image/text inference only.
+`ml-coordinator/` implements scoped semantic search, similar photos, bounded
+duplicate suggestions, a durable job ledger, separate BullMQ worker, lifecycle
+purge and staged model re-indexing. Its SQLite/cache state is separate from
+canonical PostgreSQL and originals. `compose.ml.yml` packages the ML stack with
+separate private volumes and a loopback-published API. See the
+[verification report](development/ml-suite-report.md) and
+[runbook](ml/ml-suite-runbook.md).
+
+`server-nest/src/ml/` can capture new upload IDs after successful publication and
+retry local handoff. `ML_ENABLED` defaults to false; existing-library scanning
+additionally requires `ML_BACKFILL_ENABLED=true`. No real media was indexed in
+this task. The bridge is a local single-scope prototype; it does not supply
+canonical user authorization or deletion endpoints. PostgreSQL commit and bridge
+capture are not atomic; approved backfill reconciles missed triggers until a
+separate canonical outbox design is implemented. The coordinator's durable
+guarantees start with its own acknowledged ledger.

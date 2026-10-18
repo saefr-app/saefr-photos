@@ -83,8 +83,9 @@ ignored. No tests use the development database or private media library.
 
 ## Container candidate
 
-`Dockerfile` is supplied; **build/run has not been verified because the local
-Docker daemon is stopped**. The runtime image uses CPU PyTorch, UID 10001 and
+`Dockerfile` has been built and exercised with real offline CLIP inference on
+synthetic fixtures; see the [combined verification report](../docs/development/ml-suite-report.md).
+The runtime image uses CPU PyTorch, UID 10001 and
 does not bundle weights or credentials. Build with:
 
 ```powershell
@@ -96,15 +97,15 @@ read-only at `/config/registry.json`; mount the model snapshot read-only at
 `/models`, supply `ML_SERVICE_TOKEN`, and run a single worker. For a local proof,
 limit the container to 2 CPUs and 2 GiB RAM, read-only root filesystem and a
 small bounded `/tmp`; publish only `127.0.0.1:8001:8001` on a dedicated test
-network with no external egress. Those budgets are proposed and need container
-validation. Do not attach the real storage library, application environment or
+network with no external egress. These limits passed the recorded synthetic
+container flow; they are not a production capacity guarantee. Do not attach the real storage library, application environment or
 development database network/volumes.
 
 ## Limits and review boundary
 
-This candidate does not select a production model, provide semantic search or
-persist embeddings. No authorization, queue, vector database, deletion consumer
-or re-index orchestration is implemented. Concurrency is bounded, but Python
+This inference service does not select a production model or persist embeddings.
+The separate `ml-coordinator/` supplies scoped capabilities, persistence, search,
+queue processing, lifecycle cleanup and re-index orchestration. Concurrency is bounded, but Python
 threads cannot force-stop a hung native inference call: the request times out,
 capacity remains occupied, and process restart may be required. Graceful shutdown
 waits for in-flight work; orchestrators need their own shutdown deadline.

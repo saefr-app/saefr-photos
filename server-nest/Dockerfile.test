@@ -1,0 +1,9 @@
+FROM node:24-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY . ./
+ENV NODE_ENV=test HOST=127.0.0.1 POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=1 \
+    POSTGRES_DB=saefr_http_mock POSTGRES_USER=saefr_http_mock \
+    POSTGRES_PASSWORD=synthetic_http_mock ML_ENABLED=false
+CMD ["sh", "-c", "npm run build && npm test && npm run test:e2e && npm run lint && npm run test:runtime-smoke"]

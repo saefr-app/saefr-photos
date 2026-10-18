@@ -7,6 +7,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 
 import {
@@ -21,6 +22,7 @@ import {
   type StoredFile,
 } from '../storage/local-storage.service.js';
 import { safeErrorCode } from '../errors/safe-error-code.js';
+import { MlBridgeService } from '../ml/ml-bridge.service.js';
 
 export interface AssetContent extends StoredFile {
   contentType: string;
@@ -40,6 +42,7 @@ export class AssetsService {
   constructor(
     private readonly assetsRepository: AssetsRepository,
     private readonly storage: LocalStorageService,
+    @Optional() private readonly mlBridge?: MlBridgeService,
   ) {}
 
   async upload(upload: ImageUpload): Promise<AssetResponseDto> {
@@ -87,6 +90,17 @@ export class AssetsService {
       }
 
       throw error;
+    }
+
+    if (this.mlBridge) {
+      try {
+        await this.mlBridge.notify(asset.id);
+        void this.mlBridge.reconcile().catch(() => {
+          this.logger.warn('ML scheduling pending; existing media preserved');
+        });
+      } catch {
+        this.logger.warn('ML scheduling pending; existing media preserved');
+      }
     }
 
     return this.toResponse(asset);
