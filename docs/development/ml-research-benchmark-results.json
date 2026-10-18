@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "dataset_kind": "synthetic-smoke-only",
+  "model_family": "clip",
+  "model_artifact_sha256": {
+    "config.json": "b575ef3c36f2a057fa19e221650105052d61cc9c1a972ec15019c6261ec98770",
+    "merges.txt": "f526393189112391ce6f9795d4695f704121ce452c3aad1f5335cc41337eba85",
+    "preprocessor_config.json": "910e70b3956ac9879ebc90b22fb3bc8a75b6a0677814500101a4c072bd7857bd",
+    "pytorch_model.bin": "a63082132ba4f97a80bea76823f544493bffa8082296d62d71581a4feff1576f",
+    "special_tokens_map.json": "f8c0d6c39aee3f8431078ef6646567b0aba7f2246e9c54b8b99d55c22b707cbf",
+    "tokenizer.json": "b556ac8c99757ffb677208af34bc8c6721572114111a6e0aaf5fa69ff0b8d842",
+    "tokenizer_config.json": "34b7336e4bee12e0a9730eaf5189f582ef3c3eea5027f65730e5717256755aad",
+    "vocab.json": "5047b556ce86ccaf6aa22b3ffccfc52d391ea4accdab9c2f2407da5b742d4363"
+  },
+  "dataset_manifest_sha256": "b8a38589d55d1cf8cf8750c81c50f78cc72f21223039a17492ac3b3d89df250a",
+  "environment": {
+    "python": "3.13.7",
+    "os": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "logical_cpus": 20,
+    "threads": 2,
+    "device": "cpu",
+    "dtype": "float32",
+    "packages": {
+      "torch": "2.9.1",
+      "transformers": "4.57.1",
+      "pillow": "12.2.0",
+      "psutil": "7.2.1",
+      "safetensors": "0.6.2"
+    }
+  },
+  "batch": {
+    "images": 6,
+    "queries": 6,
+    "runs": 10,
+    "warmup": 2
+  },
+  "timing_scope": "image decode, preprocessing, image+text encoding, cosine matrix",
+  "load_seconds": 13.978651599987643,
+  "first_batch_seconds": 1.0984446999791544,
+  "warm_batch_p50_seconds": 1.0392963500053156,
+  "warm_batch_p95_seconds": 1.1212105000158772,
+  "warm_images_per_second_with_text": 5.922943160998546,
+  "sampled_peak_rss_bytes": 982544384,
+  "snapshot_logical_bytes": 608863580,
+  "retrieval": {
+    "k": 1,
+    "precision_at_k": 0.8333333333333334,
+    "recall_at_k": 0.8333333333333334,
+    "mrr": 0.9166666666666666
+  }
+}
