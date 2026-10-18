@@ -1,0 +1,10 @@
+{
+  "scope": "isolated process on loopback; real local CLIP text inference",
+  "readiness": "pass",
+  "liveness": "pass",
+  "embedding_dimensions": 512,
+  "process_stopped": true,
+  "listener_closed": true,
+  "graceful_shutdown_proven": false,
+  "backend_connected": false
+}
