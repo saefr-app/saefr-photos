@@ -6,9 +6,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { LocalStorageService } from '../storage/local-storage.service.js';
 import type { AssetsRepository } from './assets.repository.js';
 import { AssetsService } from './assets.service.js';
+import type { MlBridgeService } from '../ml/ml-bridge.service.js';
 
 describe('AssetsService uploads', () => {
-  function setup() {
+  function setup(mlBridge?: MlBridgeService) {
     const saveImage = vi.fn().mockResolvedValue({
       storagePath: '/storage/originals/new.jpg',
       mimeType: 'image/jpeg',
@@ -29,7 +30,7 @@ describe('AssetsService uploads', () => {
     } as unknown as LocalStorageService;
 
     return {
-      service: new AssetsService(repository, storage),
+      service: new AssetsService(repository, storage, mlBridge),
       saveImage,
       deleteImage,
       create,
@@ -82,5 +83,50 @@ describe('AssetsService uploads', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(saveImage).not.toHaveBeenCalled();
+  });
+
+  it('notifies ML only after asset metadata is durably acknowledged', async () => {
+    const notify = vi.fn().mockResolvedValue(undefined);
+    const reconcile = vi.fn().mockResolvedValue(undefined);
+    const { service, create } = setup({
+      notify,
+      reconcile,
+    } as unknown as MlBridgeService);
+    const result = await service.upload({
+      filename: 'synthetic.jpg',
+      mimeType: 'image/jpeg',
+      stream: Readable.from([Buffer.from('synthetic')]),
+    });
+    expect(notify).toHaveBeenCalledWith(result.id);
+    expect(create.mock.invocationCallOrder[0]).toBeLessThan(
+      notify.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does not enqueue rejected database metadata and preserves successful uploads if ML is unavailable', async () => {
+    const notify = vi.fn().mockRejectedValue(new Error('ML unavailable'));
+    const reconcile = vi.fn().mockResolvedValue(undefined);
+    const { service, create, deleteImage } = setup({
+      notify,
+      reconcile,
+    } as unknown as MlBridgeService);
+    await expect(
+      service.upload({
+        filename: 'synthetic.jpg',
+        mimeType: 'image/jpeg',
+        stream: Readable.from([Buffer.from('synthetic')]),
+      }),
+    ).resolves.toHaveProperty('id');
+    expect(deleteImage).not.toHaveBeenCalled();
+    notify.mockClear();
+    create.mockRejectedValueOnce(new Error('Database unavailable'));
+    await expect(
+      service.upload({
+        filename: 'synthetic.jpg',
+        mimeType: 'image/jpeg',
+        stream: Readable.from([Buffer.from('synthetic')]),
+      }),
+    ).rejects.toThrow('Database unavailable');
+    expect(notify).not.toHaveBeenCalled();
   });
 });

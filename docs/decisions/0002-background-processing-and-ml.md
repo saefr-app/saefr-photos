@@ -1,6 +1,6 @@
 # ADR 0002 — Planned background processing and ML boundaries
 
-- **Status:** Accepted direction; **not implemented**
+- **Status:** Accepted direction; optional ML candidate implemented, canonical backend adoption pending
 
 ## Decision
 When asynchronous work is introduced, use **Redis + BullMQ** with application/worker processes instead of switching to a PostgreSQL-backed job queue. Redis holds queue state; BullMQ is a Node library, **not** a standalone service container. Run long-lived work outside the HTTP request where appropriate.
@@ -13,5 +13,15 @@ Retries, backoff, observability, decoupled workloads and an established ecosyste
 ## Future acceptance criteria
 Durable Redis configuration appropriate for jobs; idempotent processing; explicit state transitions; retry limits and dead/failed jobs; restarts and reconnection tests; careful handling of thumbnails created before metadata commits; documented resource limits.
 
-## Not implemented
-No Redis container, BullMQ worker, separate ML container, video processor, or automatic ML jobs in the current migration branch.
+## Implementation update — 2026-10-18
+The optional core ML candidate now provides Redis, a separate Node BullMQ
+coordinator/worker and a Python inference container, with an opt-in NestJS upload
+bridge. See [the verification report](../development/ml-suite-report.md).
+The standalone Node coordinator owns only derived ML state; this prototype does
+not silently move canonical orchestration away from NestJS or select a new
+canonical database. Production adoption remains subject to review.
+
+Canonical thumbnail/video jobs, authenticated asset lifecycle events and a
+transactional canonical outbox remain unimplemented. The optional bridge is
+disabled by default. No first-alpha deployment or migration of real data is
+claimed by the candidate's isolated synthetic tests.

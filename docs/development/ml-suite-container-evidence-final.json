@@ -1,0 +1,29 @@
+{
+  "mode": "real CLIP container",
+  "dimensions": 512,
+  "scope_isolation": true,
+  "semantic_ranking": true,
+  "duplicate_suggestions": true,
+  "lost_queue_recovered": true,
+  "worker_restarted": true,
+  "bounded_retry_attempts": 2,
+  "late_result_rejected": true,
+  "disabled_scope_purged": true,
+  "other_scope_preserved": true,
+  "independent_api_worker_entrypoints": true,
+  "shared_volume_restart": true,
+  "disabled_state_preserved_after_restart": true,
+  "api_worker_graceful_exit_codes": [
+    0,
+    0
+  ],
+  "container_limits": {
+    "inference_cpus": 2,
+    "inference_memory_bytes": 2147483648,
+    "coordinator_cpus": 1,
+    "coordinator_memory_bytes": 1073741824
+  },
+  "read_only_rootfs": true,
+  "network_internal": true,
+  "no_development_volumes": true
+}

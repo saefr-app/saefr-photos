@@ -36,8 +36,8 @@ Phase 9A was committed as `f8930be`: runtime configuration validation, startup f
 
 ## Future app + ML tracks
 - Mobile client, gallery, upload/backup workflows: parallel development can start on stable API contracts, not only after server release.
-- Separate Python ML inference service and later intelligent search/recognition: research and prototypes can happen independently; production integration is later.
-- No claim of completed mobile app, production-quality sync, video pipeline, face recognition, or ML processing yet.
+- Core ML candidate implemented: research/contract, separate Python inference, scoped search/similarity/duplicate suggestions, durable Redis/BullMQ indexing, lifecycle/re-index, container packaging and optional local NestJS upload bridge. See [the report](development/ml-suite-report.md). The bridge remains disabled by default; production integration and model quality evaluation remain later gates.
+- No claim of completed mobile app, production-quality sync, video pipeline, face recognition or automatic tagging. Canonical backend authentication/ownership/lifecycle and the first alpha release remain pending.
 
 ## Done means
 Implementation satisfies agreed acceptance criteria, tests pass with recorded evidence, docs reflect reality, changes reviewed, and commit/push occurs only with human approval. An agent's completion report alone does not mean the work is merged or released.

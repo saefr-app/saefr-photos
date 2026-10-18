@@ -20,12 +20,15 @@ def digest_json(value):
 
 def preprocessing_spec():
     return {
-        'adapter': 'saefr-clip-candidate-1',
+        'adapter': 'saefr-clip-candidate-2',
+        'implementation': hashlib.sha256(Path(__file__).read_bytes().replace(b'\r\n', b'\n')).hexdigest(),
         'image': 'single-frame;exif-transpose;RGB;CLIPProcessor-slow',
         'text': 'CLIP-tokenizer;special-tokens;reject-over-context;no-truncation',
         'output': 'cpu;float32;l2;dimensions-from-model-config',
         'torch': version('torch'), 'transformers': version('transformers'),
         'pillow': version('Pillow'),
+        'tokenizers': version('tokenizers'), 'numpy': version('numpy'),
+        'safetensors': version('safetensors'), 'huggingface-hub': version('huggingface-hub'),
     }
 
 

@@ -1,0 +1,96 @@
+name: saefr-ml
+services:
+  inference:
+    build: ./machine-learning
+    image: saefr-ml-candidate:local
+    read_only: true
+    cpus: 2
+    mem_limit: 2g
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+    environment:
+      ML_SERVICE_TOKEN: ${ML_SERVICE_TOKEN:?Prepare private ML credentials first}
+    volumes:
+      - type: bind
+        source: ${ML_MODEL_DIR:?Set the prepared local model directory}
+        target: /models
+        read_only: true
+      - type: bind
+        source: ${ML_CONFIG_DIR:?Set the private config directory}/registry.json
+        target: /config/registry.json
+        read_only: true
+    networks: [ml-internal]
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import os,urllib.request;r=urllib.request.Request('http://127.0.0.1:8001/health/ready',headers={'Authorization':'Bearer '+os.environ['ML_SERVICE_TOKEN']});assert urllib.request.urlopen(r,timeout=2).status==200"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    stop_grace_period: 45s
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec', '--maxmemory', '96mb', '--maxmemory-policy', 'noeviction']
+    read_only: true
+    mem_limit: 128m
+    cpus: 0.25
+    volumes: [ml-queue:/data]
+    networks: [ml-internal]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 2s
+      retries: 12
+  coordinator:
+    build:
+      context: ./ml-coordinator
+      additional_contexts:
+        contract_schemas: ./contracts/ml/v1/schemas
+    image: saefr-ml-coordinator:local
+    read_only: true
+    cpus: 1
+    mem_limit: 1g
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+    environment: &ml-environment
+      ML_STATE_DIR: /app/state
+      ML_ACCESS_FILE: /config/access.json
+      ML_MODELS_FILE: /config/models.json
+      ML_INFERENCE_TOKEN: ${ML_INFERENCE_TOKEN:?Prepare private ML credentials first}
+      ML_REDIS_HOST: redis
+      ML_REDIS_PORT: '6379'
+      ML_QUEUE_NAME: saefr-ml-local-suite
+      ML_CACHE_MAX_BYTES: '1073741824'
+    volumes: &ml-volumes
+      - ml-state:/app/state
+      - type: bind
+        source: ${ML_CONFIG_DIR}/access.json
+        target: /config/access.json
+        read_only: true
+      - type: bind
+        source: ${ML_CONFIG_DIR}/models.json
+        target: /config/models.json
+        read_only: true
+    ports: ['127.0.0.1:8002:8002']
+    networks: [ml-internal, ml-edge]
+    depends_on:
+      redis: {condition: service_healthy}
+      inference: {condition: service_healthy}
+    stop_grace_period: 45s
+  worker:
+    image: saefr-ml-coordinator:local
+    command: ['node', '--experimental-sqlite', 'src/worker-main.mjs']
+    read_only: true
+    cpus: 1
+    mem_limit: 1g
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+    environment: *ml-environment
+    volumes: *ml-volumes
+    networks: [ml-internal]
+    depends_on:
+      redis: {condition: service_healthy}
+      inference: {condition: service_healthy}
+    stop_grace_period: 45s
+networks:
+  ml-internal: {internal: true}
+  ml-edge: {}
+volumes:
+  ml-state: {}
+  ml-queue: {}
