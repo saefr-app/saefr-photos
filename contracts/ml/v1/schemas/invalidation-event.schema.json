@@ -1,0 +1,61 @@
+{
+  "$comment": "Draft proposal. Shape validation only; use cross-field checks for vector dimension/norm and request/result binding.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "title": "Asset Id",
+      "type": "string"
+    },
+    "event": {
+      "const": "asset.ml_invalidated",
+      "title": "Event",
+      "type": "string"
+    },
+    "event_id": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "generation": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Generation",
+      "type": "integer"
+    },
+    "reason": {
+      "enum": [
+        "trashed",
+        "deleted",
+        "content_changed",
+        "scope_changed",
+        "ml_disabled",
+        "restored"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scope_id": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "title": "Scope Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_id",
+    "event",
+    "asset_id",
+    "scope_id",
+    "generation",
+    "reason"
+  ],
+  "title": "InvalidationEvent",
+  "type": "object"
+}
