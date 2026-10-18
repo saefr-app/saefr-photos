@@ -1,0 +1,53 @@
+{
+  "$comment": "Draft proposal. Shape validation only; use cross-field checks for vector dimension/norm and request/result binding.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "INVALID_REQUEST",
+        "INVALID_IMAGE",
+        "UNSUPPORTED_MEDIA",
+        "PAYLOAD_TOO_LARGE",
+        "MODEL_MISMATCH",
+        "MODEL_UNAVAILABLE",
+        "BUSY",
+        "TIMEOUT",
+        "INTERNAL"
+      ],
+      "title": "Code",
+      "type": "string"
+    },
+    "request_id": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "retry_after_ms": {
+      "anyOf": [
+        {
+          "maximum": 60000,
+          "minimum": 100,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Retry After Ms"
+    },
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_id",
+    "code",
+    "retry_after_ms"
+  ],
+  "title": "ErrorResult",
+  "type": "object"
+}

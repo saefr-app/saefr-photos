@@ -1,0 +1,97 @@
+{
+  "$comment": "Draft proposal. Shape validation only; use cross-field checks for vector dimension/norm and request/result binding.",
+  "$defs": {
+    "ModelSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "dimensions": {
+          "maximum": 4096,
+          "minimum": 1,
+          "title": "Dimensions",
+          "type": "integer"
+        },
+        "model_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$",
+          "title": "Model Id",
+          "type": "string"
+        },
+        "preprocessing_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Preprocessing Digest",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_id",
+        "revision",
+        "artifact_digest",
+        "preprocessing_digest",
+        "dimensions"
+      ],
+      "title": "ModelSpec",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "embedding": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 4096,
+      "minItems": 1,
+      "title": "Embedding",
+      "type": "array"
+    },
+    "model": {
+      "$ref": "#/$defs/ModelSpec"
+    },
+    "normalization": {
+      "const": "l2",
+      "title": "Normalization",
+      "type": "string"
+    },
+    "request_id": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scope_id": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "title": "Scope Id",
+      "type": "string"
+    },
+    "task": {
+      "const": "text_embedding",
+      "title": "Task",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_id",
+    "model",
+    "normalization",
+    "embedding",
+    "task",
+    "scope_id"
+  ],
+  "title": "TextResult",
+  "type": "object"
+}
