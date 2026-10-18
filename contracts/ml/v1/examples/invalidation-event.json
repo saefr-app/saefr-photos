@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "event_id": "00000000-0000-4000-8000-000000000004",
+  "event": "asset.ml_invalidated",
+  "asset_id": "00000000-0000-4000-8000-000000000001",
+  "scope_id": "00000000-0000-4000-8000-000000000002",
+  "generation": 2,
+  "reason": "deleted"
+}

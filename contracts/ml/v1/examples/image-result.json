@@ -1,0 +1,24 @@
+{
+  "schema_version": "1",
+  "request_id": "00000000-0000-4000-8000-000000000003",
+  "model": {
+    "model_id": "example/paired-encoder",
+    "revision": "1111111111111111111111111111111111111111",
+    "artifact_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "preprocessing_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+    "dimensions": 3
+  },
+  "task": "image_embedding",
+  "subject": {
+    "asset_id": "00000000-0000-4000-8000-000000000001",
+    "scope_id": "00000000-0000-4000-8000-000000000002",
+    "generation": 1
+  },
+  "image_sha256": "c16a40a4584e5bccc84b45172fcdfa922f59ff1edebf3adba7b8266ea04eb39a",
+  "normalization": "l2",
+  "embedding": [
+    1.0,
+    0.0,
+    0.0
+  ]
+}

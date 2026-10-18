@@ -1,0 +1,14 @@
+{
+  "name": "saefr-ml-coordinator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22.13"},
+  "scripts": {
+    "test": "node --experimental-sqlite --test test/*.test.mjs",
+    "start": "node --experimental-sqlite src/main.mjs",
+    "worker": "node --experimental-sqlite src/worker-main.mjs",
+    "test:integration": "node --experimental-sqlite test/integration.mjs"
+  },
+  "dependencies": {"ajv": "8.17.1", "bullmq": "5.25.6"}
+}
