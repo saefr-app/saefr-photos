@@ -25,7 +25,12 @@ export class JobsStore extends IndexStore {
   registerAndQueue(scopeId,assetId,generation,image,inputKey) {
     return this.transaction(()=>{
       const registered=this.registerInside(scopeId,assetId,generation,image,inputKey);
-      return {...registered,job:this.queueInside(registered.asset)};
+      const job=this.queueInside(registered.asset);
+      if(job?.state==='failed' && job.error_code==='SOURCE_UNAVAILABLE') {
+        this.db.prepare("UPDATE jobs SET state='pending',attempts=0,error_code=NULL,updated_at=? WHERE id=?")
+          .run(Date.now(),job.id);
+      }
+      return {...registered,job:job?this.job(job.id):null};
     });
   }
   job(id) { return this.db.prepare('SELECT * FROM jobs WHERE id=?').get(id); }
@@ -91,6 +96,19 @@ export class JobsStore extends IndexStore {
       return retry;
     });
   }
+  lostInput(id) {
+    return this.transaction(()=>{
+      const job=this.job(id);
+      if(!job || job.state!=='running')return;
+      if(!this.eligibleJob(job)) {
+        this.db.prepare("UPDATE jobs SET state='skipped',request_json=NULL,error_code=NULL,updated_at=? WHERE id=?")
+          .run(Date.now(),id);return;
+      }
+      this.db.prepare('UPDATE assets SET input_key=NULL WHERE id=? AND generation=?').run(job.asset_id,job.generation);
+      this.db.prepare("UPDATE jobs SET state='failed',error_code='SOURCE_UNAVAILABLE',updated_at=? WHERE id=?")
+        .run(Date.now(),id);
+    });
+  }
   coverage(scopeId) {
     const scope=this.scope(scopeId,false);
     const count=this.db.prepare(`SELECT count(*) AS total,count(e.asset_id) AS indexed FROM assets a
@@ -106,6 +124,12 @@ export class JobsStore extends IndexStore {
     this.scope(scopeId,false);integer(limit,1,100);
     return this.db.prepare(`SELECT id,state,attempts,error_code,model_key,updated_at FROM jobs
       WHERE scope_id=? ORDER BY updated_at DESC,id LIMIT ?`).all(scopeId,limit);
+  }
+  assetStatus(scopeId,assetId) {
+    const asset=this.asset(scopeId,assetId,false);const scope=this.scope(scopeId,false);
+    const indexed=Boolean(this.db.prepare(`SELECT 1 FROM embeddings WHERE asset_id=? AND scope_id=?
+      AND model_key=? AND generation=? AND checksum=?`).get(assetId,scopeId,scope.target_model,asset.generation,asset.checksum));
+    return {asset_id:assetId,generation:asset.generation,state:asset.state,needs_input:asset.input_key===null,indexed};
   }
   retry(id,retryId) {
     identifier(retryId);

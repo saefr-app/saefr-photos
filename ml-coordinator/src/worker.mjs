@@ -13,6 +13,11 @@ export async function processIndex(store,inputs,inference,id) {
   } catch (error) {
     const allowed=new Set(['INFERENCE_UNAVAILABLE','INFERENCE_REJECTED','PROTOCOL_MISMATCH','SOURCE_UNAVAILABLE','INVALID_VECTOR']);
     const code=error instanceof Failure && allowed.has(error.code)?error.code:'PROCESSING_FAILED';
+    if(code==='SOURCE_UNAVAILABLE' && !error.retryable) {
+      store.lostInput(id);
+      if(store.job(id)?.state==='skipped')return {skipped:true};
+      throw new UnrecoverableError(code);
+    }
     const retry=store.fail(id,code,Boolean(error.retryable));
     if (retry) throw new Error(code);
     if (store.job(id)?.state==='skipped') return {skipped:true};

@@ -18,6 +18,7 @@ export class IndexStore {
     this.db.exec(`BEGIN IMMEDIATE;
       PRAGMA application_id=${APPLICATION_ID}; PRAGMA user_version=1;
       CREATE TABLE IF NOT EXISTS models (key TEXT PRIMARY KEY, identity TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS api_lease (id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,expires_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS scopes (id TEXT PRIMARY KEY, enabled INTEGER NOT NULL,
         epoch INTEGER NOT NULL, active_model TEXT NOT NULL REFERENCES models(key),
         target_model TEXT NOT NULL REFERENCES models(key));
@@ -39,7 +40,13 @@ export class IndexStore {
   close() { this.db.close(); }
   transaction(operation) {
     this.db.exec('BEGIN IMMEDIATE');
-    try { const result = operation(); this.db.exec('COMMIT'); return result; }
+    const fence=()=>{
+      if(this.apiOwner) {
+        const lease=this.db.prepare('SELECT owner,expires_at FROM api_lease WHERE id=1').get();
+        if(!lease || lease.owner!==this.apiOwner || lease.expires_at<=Date.now())throw new Failure('API_LEASE_LOST',503);
+      }
+    };
+    try { fence(); const result = operation(); fence(); this.db.exec('COMMIT'); return result; }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   scope(scopeId, enabled = true) {
