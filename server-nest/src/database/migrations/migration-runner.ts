@@ -5,7 +5,11 @@ import {
   inspectLegacyAsset,
   MigrationSafetyError,
 } from './legacy-asset-schema.js';
-import { createMigrationProvider } from './migration-provider.js';
+import { assertAuthAbsent, inspectAuthSchema } from './auth-schema.js';
+import {
+  AUTHENTICATION_MIGRATION,
+  createMigrationProvider,
+} from './migration-provider.js';
 
 async function withMigrationLock<DB, T>(
   db: Kysely<DB>,
@@ -191,6 +195,13 @@ async function inspectMigrationStatus<DB>(db: Kysely<DB>) {
       throw new MigrationSafetyError(
         'The name public.asset_pkey is already in use. No schema repair attempted.',
       );
+  }
+  if (
+    applied.some((migration) => migration.name === AUTHENTICATION_MIGRATION)
+  ) {
+    await inspectAuthSchema(db);
+  } else {
+    await assertAuthAbsent(db);
   }
   return {
     installation: applied.length ? 'managed' : assetExists ? 'legacy' : 'fresh',

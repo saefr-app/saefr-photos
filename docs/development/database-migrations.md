@@ -1,5 +1,17 @@
 # Database migrations
 
+## M10 authentication foundation (Phase 10B.2)
+
+M10 adds the immutable version `202610210001_authentication_foundation` after the M8 asset version. It creates only `public.app_user` and `public.auth_session`, with required UUIDs, timestamps, canonical usernames, role/status checks, a restricted user foreign key, 32-byte session/CSRF checks, expiry ordering, and the named unique/query indexes specified in the [approved M10 specification](milestone-10-spec.md). It does not alter `public.asset`, assign owners, create accounts, activate login, or touch media files.
+
+The runner now checks schema according to applied history: no authentication relations are permitted before the M10 version; after it is recorded, both authentication tables must exactly match the approved catalog contract. Every state still validates the unchanged historical `asset` schema through the frozen M8 inspector. Reserved-name collisions, incomplete tables, missing/wrong constraints and indexes, altered defaults or types, row security and damaged history fail without repair. The new migration checks for collisions before DDL and validates the result inside Kysely's migration transaction. A failed pending version rolls back its DDL and ledger entry; Kysely metadata bootstrap remains subject to the existing M8 limitation below.
+
+Fresh installs apply both versions. An M8-managed database applies only the new M10 version. A compatible untracked legacy asset table still requires explicit `--baseline-legacy`; the runner records the M8 version through its unchanged baseline procedure, then applies M10. Repeat execution has no pending changes. The API does not run migrations at startup. The M10 source migration has no automatic destructive down path.
+
+**The Phase 10B.2 authorization covers source and disposable PostgreSQL tests only.** It does not authorize running `db:migrate` or `db:status` against the development database. Review backups, schema compatibility, recovery and an isolated rehearsal before seeking separate approval for any real upgrade. The current application still has no authentication or asset ownership; the presence of new schema code does not secure its existing asset routes.
+
+The remainder of this document records the original M8 migration design and commands, which remain in force.
+
 M8 introduces a standalone, explicit migration command for PostgreSQL 18. Starting the Nest application does **not** run migrations. The application API and database connection settings are unchanged.
 
 ## Architecture and version history
@@ -16,14 +28,14 @@ See the [Kysely Migrator API](https://kysely-org.github.io/kysely-apidoc/classes
 
 The maintainer inspected the real legacy table with `psql \d+ public.asset` and supplied this contract:
 
-| Column | PostgreSQL type | Nullability/default |
-| --- | --- | --- |
-| `id` | UUID | NOT NULL; no default |
-| `filename` | unbounded VARCHAR | NOT NULL; no default |
-| `mime_type` | unbounded VARCHAR | NOT NULL; no default |
-| `size` | INTEGER | NOT NULL; no default |
-| `storage_path` | unbounded VARCHAR | NOT NULL; no default |
-| `created_at` | TIMESTAMP WITH TIME ZONE | NOT NULL; no default |
+| Column         | PostgreSQL type          | Nullability/default  |
+| -------------- | ------------------------ | -------------------- |
+| `id`           | UUID                     | NOT NULL; no default |
+| `filename`     | unbounded VARCHAR        | NOT NULL; no default |
+| `mime_type`    | unbounded VARCHAR        | NOT NULL; no default |
+| `size`         | INTEGER                  | NOT NULL; no default |
+| `storage_path` | unbounded VARCHAR        | NOT NULL; no default |
+| `created_at`   | TIMESTAMP WITH TIME ZONE | NOT NULL; no default |
 
 The sole primary key/index is `asset_pkey` on `id`. This agrees with the SQLModel-generated DDL tested in M7. Column order does not affect compatibility.
 
@@ -42,12 +54,12 @@ Run npm commands from `server-nest/` with Node.js 24. Each migration npm command
 
 Supply **all** of these settings through an approved environment or secret mechanism:
 
-| Variable | Purpose |
-| --- | --- |
-| `MIGRATION_POSTGRES_HOST` | Explicit PostgreSQL host |
-| `MIGRATION_POSTGRES_PORT` | Explicit port, 1–65535 |
-| `MIGRATION_POSTGRES_DB` | Intended database |
-| `MIGRATION_POSTGRES_USER` | Migration role |
+| Variable                      | Purpose                                        |
+| ----------------------------- | ---------------------------------------------- |
+| `MIGRATION_POSTGRES_HOST`     | Explicit PostgreSQL host                       |
+| `MIGRATION_POSTGRES_PORT`     | Explicit port, 1–65535                         |
+| `MIGRATION_POSTGRES_DB`       | Intended database                              |
+| `MIGRATION_POSTGRES_USER`     | Migration role                                 |
 | `MIGRATION_POSTGRES_PASSWORD` | Migration credential; never commit or print it |
 
 The CLI does not load `.env` and does not fall back to application `POSTGRES_*` settings. No example here supplies the existing development database's credentials.
