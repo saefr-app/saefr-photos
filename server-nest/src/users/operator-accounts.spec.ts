@@ -27,6 +27,9 @@ const dedicatedEnv = {
 describe('operator account validation', () => {
   it('normalizes only valid canonical usernames', () => {
     expect(canonicalUsername('  Alice.Name_1  ')).toBe('alice.name_1');
+    expect(canonicalUsername('  ALICE.NAME_1  ')).toBe(
+      canonicalUsername('alice.name_1'),
+    );
     expect(canonicalUsername('a'.repeat(64))).toHaveLength(64);
     for (const value of [
       undefined,
@@ -36,6 +39,11 @@ describe('operator account validation', () => {
       '.alice',
       'a b c',
       'álîce',
+      'Kevin',
+      'İan',
+      'аlice',
+      'Ａlice',
+      'ali​ce',
     ])
       expect(() => canonicalUsername(value)).toThrow(UsernameError);
   });

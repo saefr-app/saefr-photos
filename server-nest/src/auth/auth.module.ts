@@ -18,6 +18,11 @@ import { DefaultDenyGuard, RequestAuthenticator } from './request-auth.js';
     RequestAuthenticator,
     { provide: APP_GUARD, useClass: DefaultDenyGuard },
   ],
-  exports: [AuthSessionService, RequestAuthenticator],
+  exports: [
+    AuthSessionService,
+    RequestAuthenticator,
+    PasswordService,
+    AttemptLimiter,
+  ],
 })
 export class AuthModule {}

@@ -33,7 +33,7 @@ Phase 9A was committed as `f8930be`: runtime configuration validation, startup f
 
 ## M10 — Authentication Foundation [IN PROGRESS]
 
-Phases 10B.1–10B.3 were committed and pushed on `feat/m10-auth-foundation` as `7c9fc9d`. Phase 10B.4 implements browser sessions and structurally blocks ownerless asset routes; it remains uncommitted and awaits review. Closed provisioning replaces the earlier generic registration plan. Phase 10B.5 administrator HTTP operations remain pending. No development database migration or public deployment is authorized by this progress.
+Phases 10B.1–10B.3 were committed and pushed on `feat/m10-auth-foundation` as `7c9fc9d`; Phase 10B.4 browser sessions and structural ownerless-asset lockdown were committed and pushed as `d5d91d7`. Phase 10B.5 implements administrator account creation, listing and disable and awaits maintainer review without a commit. Closed provisioning replaces the earlier generic registration plan. No development database migration or public deployment is authorized by this progress.
 
 ## Later alpha modules (ordering may adjust)
 

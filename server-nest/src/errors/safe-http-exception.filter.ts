@@ -24,7 +24,11 @@ const PUBLIC_MESSAGES: Readonly<Record<number, readonly string[]>> = {
   401: ['Unauthorized'],
   403: ['Forbidden'],
   404: ['Asset not found', 'Asset file not found', 'Not found'],
-  409: ['Session limit reached'],
+  409: [
+    'Session limit reached',
+    'Username already exists',
+    'Account cannot be disabled',
+  ],
   429: ['Too many requests'],
   413: ['File too large'],
   415: [
@@ -121,7 +125,8 @@ export class SafeHttpExceptionFilter implements ExceptionFilter {
     reply.removeHeader('content-disposition');
     if (
       request.url.startsWith('/api/v1/auth/') ||
-      request.url.startsWith('/api/v1/me')
+      request.url.startsWith('/api/v1/me') ||
+      request.url.startsWith('/api/v1/users')
     )
       reply.header('Cache-Control', 'no-store');
     reply.type('application/json');
