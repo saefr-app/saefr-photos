@@ -92,6 +92,26 @@ export function validateRuntimeConfig(
     throw new RuntimeConfigError('STORAGE_ROOT must be a valid path');
   }
 
+  const origin = required(env, 'APP_ORIGIN');
+  let parsedOrigin: URL;
+  try {
+    parsedOrigin = new URL(origin);
+  } catch {
+    throw new RuntimeConfigError('APP_ORIGIN must be an exact origin');
+  }
+  if (
+    parsedOrigin.origin !== origin ||
+    !hostname(parsedOrigin.hostname.replace(/^\[|\]$/g, '')) ||
+    !['http:', 'https:'].includes(parsedOrigin.protocol) ||
+    parsedOrigin.username ||
+    parsedOrigin.password ||
+    (parsedOrigin.protocol === 'http:' &&
+      (nodeEnv === 'production' ||
+        !['localhost', '127.0.0.1', '[::1]'].includes(parsedOrigin.hostname)))
+  ) {
+    throw new RuntimeConfigError('APP_ORIGIN must be an approved exact origin');
+  }
+
   return {
     ...env,
     NODE_ENV: nodeEnv,
@@ -103,5 +123,6 @@ export function validateRuntimeConfig(
     POSTGRES_USER: required(env, 'POSTGRES_USER'),
     POSTGRES_PASSWORD: required(env, 'POSTGRES_PASSWORD'),
     STORAGE_ROOT: resolve(storageRoot),
+    APP_ORIGIN: origin,
   };
 }

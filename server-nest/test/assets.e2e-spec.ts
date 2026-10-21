@@ -6,16 +6,9 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from '@nestjs/platform-fastify';
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { AppModule } from '../src/app.module.js';
+import { LegacyAssetsTestModule } from './helpers/legacy-assets-test.module.js';
 import { AssetsRepository } from '../src/assets/assets.repository.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { LocalStorageService } from '../src/storage/local-storage.service.js';
@@ -41,11 +34,9 @@ describe('Assets API (e2e)', () => {
     return id === asset.id ? asset : undefined;
   });
 
-  const findFileById = vi.fn().mockImplementation(
-    async (id: string) => {
-      return id === asset.id ? asset : undefined;
-    },
-  );
+  const findFileById = vi.fn().mockImplementation(async (id: string) => {
+    return id === asset.id ? asset : undefined;
+  });
 
   const openOriginal = vi.fn().mockImplementation(async () => ({
     stream: Readable.from([originalBytes]),
@@ -59,7 +50,7 @@ describe('Assets API (e2e)', () => {
 
   beforeAll(async () => {
     const moduleFixture = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [LegacyAssetsTestModule],
     })
       .overrideProvider(DatabaseService)
       .useValue({

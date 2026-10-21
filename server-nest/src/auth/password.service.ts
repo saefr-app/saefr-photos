@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto';
 
 import * as argon2 from 'argon2';
+import { Injectable } from '@nestjs/common';
+
+export class ArgonCapacityError extends Error {}
 
 export class PasswordPolicyError extends Error {
   constructor() {
@@ -61,15 +64,35 @@ function validCandidate(value: unknown): value is string {
   );
 }
 
+@Injectable()
 export class PasswordService {
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+
+  private async bounded<T>(work: () => Promise<T>): Promise<T> {
+    if (this.active >= 2) {
+      if (this.waiting.length >= 16) throw new ArgonCapacityError();
+      await new Promise<void>((resolve) => this.waiting.push(resolve));
+    } else this.active++;
+    try {
+      return await work();
+    } finally {
+      const next = this.waiting.shift();
+      if (next) next();
+      else this.active--;
+    }
+  }
+
   async hash(password: unknown): Promise<string> {
     validateNewPassword(password);
     const bytes = Buffer.from(password, 'utf8');
     try {
-      return await argon2.hash(bytes, {
-        ...PASSWORD_COST,
-        salt: randomBytes(16),
-      });
+      return await this.bounded(() =>
+        argon2.hash(bytes, {
+          ...PASSWORD_COST,
+          salt: randomBytes(16),
+        }),
+      );
     } finally {
       bytes.fill(0);
     }
@@ -81,8 +104,9 @@ export class PasswordService {
     if (!ENCODED_HASH.test(encodedHash)) return false;
     const bytes = Buffer.from(password, 'utf8');
     try {
-      return await argon2.verify(encodedHash, bytes);
-    } catch {
+      return await this.bounded(() => argon2.verify(encodedHash, bytes));
+    } catch (error) {
+      if (error instanceof ArgonCapacityError) throw error;
       // Malformed or damaged stored hashes never escape as native errors.
       return false;
     } finally {

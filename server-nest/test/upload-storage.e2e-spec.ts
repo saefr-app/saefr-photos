@@ -13,7 +13,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import sharp from 'sharp';
 
-import { AppModule } from '../src/app.module.js';
+import { LegacyAssetsTestModule } from './helpers/legacy-assets-test.module.js';
 import { AssetsRepository } from '../src/assets/assets.repository.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { LocalStorageService } from '../src/storage/local-storage.service.js';
@@ -43,7 +43,7 @@ describe('Image upload with isolated real storage (e2e)', () => {
     create = vi.fn().mockImplementation(async (asset) => asset);
 
     const moduleFixture = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [LegacyAssetsTestModule],
     })
       .overrideProvider(DatabaseService)
       .useValue({ ping: vi.fn().mockResolvedValue(undefined) })

@@ -1,7 +1,8 @@
 # Saefr Photos backend
 
-NestJS 12, Fastify, Kysely, PostgreSQL 18 and Sharp. The API is still
-unauthenticated and must remain local until authorization is implemented.
+NestJS 12, Fastify, Kysely, PostgreSQL 18 and Sharp. M10 browser authentication
+is in progress; ownerless asset endpoints are blocked pending M11 ownership.
+Keep the API local until the remaining authorization and deployment work is reviewed.
 Run npm commands from `server-nest/` with Node.js 24.
 
 ## Setup and runtime configuration
@@ -13,28 +14,33 @@ npm run start:dev
 
 Nest loads the root `.env` first, then `server-nest/.env`; the root file takes
 precedence if both set the same key. Process environment variables take
-precedence over either file. Set `POSTGRES_DB`, `POSTGRES_USER` and
-`POSTGRES_PASSWORD` to nonblank values. Optional settings and defaults are:
+precedence over either file. Set `POSTGRES_DB`, `POSTGRES_USER`,
+`POSTGRES_PASSWORD` and an exact `APP_ORIGIN` to nonblank values. Production
+requires an HTTPS origin; development/test HTTP origins must be loopback.
+Optional settings and defaults are:
 
-| Setting | Default |
-| --- | --- |
-| `POSTGRES_HOST` | `127.0.0.1` |
-| `POSTGRES_PORT` | `5432` |
-| `HOST` | `127.0.0.1` |
-| `PORT` | `3000` |
-| `NODE_ENV` | `development` (`test` and `production` also accepted) |
-| `STORAGE_ROOT` | `../storage` relative to `server-nest/` |
+| Setting         | Default                                               |
+| --------------- | ----------------------------------------------------- |
+| `POSTGRES_HOST` | `127.0.0.1`                                           |
+| `POSTGRES_PORT` | `5432`                                                |
+| `HOST`          | `127.0.0.1`                                           |
+| `PORT`          | `3000`                                                |
+| `NODE_ENV`      | `development` (`test` and `production` also accepted) |
+| `STORAGE_ROOT`  | `../storage` relative to `server-nest/`               |
 
 Ports must be integers from 1 to 65535. A relative `STORAGE_ROOT` is resolved
 from the process working directory. Invalid settings stop startup with a
 setting-specific error that does not print configured values. An explicit
-`HOST` can bind beyond localhost, so keep it local until authorization and
-deployment safeguards are implemented. Production mode hides Swagger; it does
-not add authentication.
+`HOST` can bind beyond localhost, so keep it local until deployment safeguards
+are reviewed. The M10 production composition does not mount asset routes.
 
-Startup does not run migrations or check database connectivity. Use
-`GET /health/ready` for the database check. The API serves Swagger at `/docs`
-and OpenAPI JSON at `/docs-json` outside production mode.
+Startup does not run migrations. It checks the exact managed M10 schema before
+listening and fails safely if the database is unavailable or incompatible.
+The existing development database has not been approved for this upgrade;
+do not run the migration or operator commands against it to make startup pass.
+`GET /health/ready` checks database connectivity. Swagger is disabled by
+default during the M10 authorization transition. Auth endpoints are under
+`/api/v1/auth`; `/api/v1/me` returns the current user and CSRF token.
 
 ## Verification
 
@@ -47,11 +53,13 @@ npm run test:e2e
 npm run test:integration
 ```
 
-Unit and HTTP E2E tests do not use the real PostgreSQL database. The
+Unit and legacy asset HTTP E2E tests do not use the real PostgreSQL database. The
 integration runner creates a uniquely named `postgres:18` container with
 in-memory storage and a random port bound to `127.0.0.1`. It supplies test
 credentials to Vitest, verifies container isolation, and removes the
 container after normal runs, test failures and handled termination signals.
+M10 authentication integration tests run real HTTP against a localhost socket
+and random databases inside that disposable container.
 It does not use the root Compose project, `.env`, the development database
 volume, or files under `storage/`. If the runner is killed before cleanup,
 inspect containers labeled `dev.saefr.purpose=milestone-07-integration` and

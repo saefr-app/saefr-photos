@@ -12,6 +12,8 @@ import { safeErrorCode } from './safe-error-code.js';
 
 const PUBLIC_MESSAGES: Readonly<Record<number, readonly string[]>> = {
   400: [
+    'Invalid request',
+    'Invalid password',
     'Image file is required',
     'Invalid filename',
     'Invalid multipart request',
@@ -19,7 +21,11 @@ const PUBLIC_MESSAGES: Readonly<Record<number, readonly string[]>> = {
     'Unexpected multipart field',
     'Validation failed (uuid is expected)',
   ],
-  404: ['Asset not found', 'Asset file not found'],
+  401: ['Unauthorized'],
+  403: ['Forbidden'],
+  404: ['Asset not found', 'Asset file not found', 'Not found'],
+  409: ['Session limit reached'],
+  429: ['Too many requests'],
   413: ['File too large'],
   415: [
     'Unsupported image type',
@@ -28,12 +34,16 @@ const PUBLIC_MESSAGES: Readonly<Record<number, readonly string[]>> = {
     'Invalid or unsupported image',
     'Unable to decode image',
   ],
-  503: ['Database unavailable'],
+  503: ['Database unavailable', 'Asset access is unavailable'],
 };
 
 const STATUS_LABELS: Readonly<Record<number, string>> = {
   400: 'Bad Request',
+  401: 'Unauthorized',
+  403: 'Forbidden',
   404: 'Not Found',
+  409: 'Conflict',
+  429: 'Too Many Requests',
   413: 'Payload Too Large',
   415: 'Unsupported Media Type',
   500: 'Internal Server Error',
@@ -109,6 +119,11 @@ export class SafeHttpExceptionFilter implements ExceptionFilter {
     reply.removeHeader('content-type');
     reply.removeHeader('content-length');
     reply.removeHeader('content-disposition');
+    if (
+      request.url.startsWith('/api/v1/auth/') ||
+      request.url.startsWith('/api/v1/me')
+    )
+      reply.header('Cache-Control', 'no-store');
     reply.type('application/json');
 
     const error = STATUS_LABELS[safeStatus] ?? 'Request failed';

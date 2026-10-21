@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ArgonCapacityError,
   PasswordPolicyError,
   PasswordService,
   validateNewPassword,
@@ -70,4 +71,41 @@ describe('PasswordService', () => {
       true,
     );
   }, 20_000);
+
+  it('bounds queued Argon work rather than accepting unlimited requests', async () => {
+    const busy = new PasswordService();
+    const results = await Promise.allSettled(
+      Array.from({ length: 19 }, () =>
+        busy.hash('parallel isolated secure phrase'),
+      ),
+    );
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(18);
+    expect(results.filter((result) => result.status === 'rejected')).toEqual([
+      expect.objectContaining({
+        status: 'rejected',
+        reason: expect.any(ArgonCapacityError),
+      }),
+    ]);
+  }, 30_000);
+
+  it('reports verification capacity exhaustion instead of an invalid password', async () => {
+    const busy = new PasswordService();
+    const encoded = await busy.hash('parallel isolated secure phrase');
+    const results = await Promise.allSettled(
+      Array.from({ length: 19 }, () =>
+        busy.verify('parallel isolated secure phrase', encoded),
+      ),
+    );
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(18);
+    expect(results.filter((result) => result.status === 'rejected')).toEqual([
+      expect.objectContaining({
+        status: 'rejected',
+        reason: expect.any(ArgonCapacityError),
+      }),
+    ]);
+  }, 30_000);
 });

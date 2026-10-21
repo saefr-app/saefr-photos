@@ -445,5 +445,5 @@ describe('local authentication account operations on disposable PostgreSQL', () 
     expect(await db.selectFrom('auth_session').select('id').execute()).toEqual(
       [],
     );
-  });
+  }, 20_000);
 });

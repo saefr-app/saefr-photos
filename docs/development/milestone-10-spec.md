@@ -1,12 +1,12 @@
 # Milestone 10 — Authentication Foundation specification
 
-- **Status:** APPROVED architectural contract; Phase 10B.3 separately authorized on 2026-10-22
+- **Status:** APPROVED architectural contract; Phase 10B.4 separately authorized on 2026-10-22
 - **Starting baseline:** `integration` at `68d6a1aa1fc98c8103953c702b5289e79873dde0` (verified 2026-10-21)
 - **Working branch:** `feat/m10-auth-foundation`
 - **Companion documents:** [implementation context](milestone-10-implementation-context.md), [accepted ADR 0004](../decisions/0004-authentication-foundation.md), [migration guide](database-migrations.md)
 - **Draft reviewed:** `/home/kartik/Downloads/saefr-m10-authentication-foundation-spec.md` (external proposal, not an approved repository specification)
 
-This specification describes the approved M10 architectural contract. **Phase 10B.3 is currently authorized; later phases require separate approval.** Requirements below are implementation targets unless the phase reports verify them. The maintainer's approval does not authorize application to the development database.
+This specification describes the approved M10 architectural contract. **Phase 10B.4 is currently authorized; later phases require separate approval.** Requirements below are implementation targets unless the phase reports verify them. The maintainer's approval does not authorize application to the development database.
 
 ## Goal and release boundary
 
@@ -182,4 +182,4 @@ The maintainer approved the M10 architectural direction and the asset-lockdown o
 6. The proposed schema, migration name and version-aware strict validation, with M8 history and development data preserved.
 7. The bounded in-memory throttle and Argon2id parameters after benchmark.
 
-The Argon2id cost was benchmarked on the local test host in [the Phase 10B.3 report](milestone-10b3-report.md); deployment hardware still needs its own measurement. Applying a migration to the existing development database, activating login, and starting later phases require separate authorization. Any change to these contracts during implementation requires a documented review.
+The Argon2id cost was benchmarked on the local test host in [the Phase 10B.3 report](milestone-10b3-report.md); deployment hardware still needs its own measurement. Phase 10B.4 separately authorized login only after the structural asset lockdown was verified. Applying a migration to the existing development database and starting later phases still require separate authorization. Any change to these contracts during implementation requires a documented review.
