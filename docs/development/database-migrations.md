@@ -8,7 +8,7 @@ The runner now checks schema according to applied history: no authentication rel
 
 Fresh installs apply both versions. An M8-managed database applies only the new M10 version. A compatible untracked legacy asset table still requires explicit `--baseline-legacy`; the runner records the M8 version through its unchanged baseline procedure, then applies M10. Repeat execution has no pending changes. The API does not run migrations at startup. The M10 source migration has no automatic destructive down path.
 
-**The Phase 10B.2 authorization covers source and disposable PostgreSQL tests only.** It does not authorize running `db:migrate` or `db:status` against the development database. Review backups, schema compatibility, recovery and an isolated rehearsal before seeking separate approval for any real upgrade. The current application still has no authentication or asset ownership; the presence of new schema code does not secure its existing asset routes.
+**The Phase 10B.2 authorization covered source and disposable PostgreSQL tests only.** It did not authorize running `db:migrate` or `db:status` against the development database. Review backups, schema compatibility, recovery and an isolated rehearsal before seeking separate approval for any real upgrade. The M10 application now requires the managed authentication schema at startup and blocks all production asset routes; asset ownership remains absent and M11 authorization is required before reopening them.
 
 The remainder of this document records the original M8 migration design and commands, which remain in force.
 

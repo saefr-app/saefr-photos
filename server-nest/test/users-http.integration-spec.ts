@@ -235,6 +235,13 @@ describe('M10 administrator routes on disposable PostgreSQL and localhost HTTP',
     expect(firstLogin.response.status).toBe(200);
     expect(
       (
+        await request('/api/v1/assets', {
+          headers: { Cookie: firstLogin.cookie },
+        })
+      ).status,
+    ).toBe(503);
+    expect(
+      (
         await request('/api/v1/users', {
           headers: { Cookie: firstLogin.cookie },
         })

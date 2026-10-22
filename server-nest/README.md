@@ -1,7 +1,8 @@
 # Saefr Photos backend
 
-NestJS 12, Fastify, Kysely, PostgreSQL 18 and Sharp. M10 browser authentication
-is in progress; ownerless asset endpoints are blocked pending M11 ownership.
+NestJS 12, Fastify, Kysely, PostgreSQL 18 and Sharp. The M10 authentication
+foundation is implemented on its feature branch, pending independent review;
+ownerless asset endpoints remain blocked pending M11 ownership.
 Keep the API local until the remaining authorization and deployment work is reviewed.
 Run npm commands from `server-nest/` with Node.js 24.
 
@@ -41,6 +42,8 @@ do not run the migration or operator commands against it to make startup pass.
 `GET /health/ready` checks database connectivity. Swagger is disabled by
 default during the M10 authorization transition. Auth endpoints are under
 `/api/v1/auth`; `/api/v1/me` returns the current user and CSRF token.
+Administrator-only `/api/v1/users` routes create ordinary accounts, list
+accounts and disable accounts after current-password reauthentication.
 
 ## Verification
 
@@ -51,6 +54,8 @@ npm run lint
 npm run test
 npm run test:e2e
 npm run test:integration
+npm run test:migrations
+npm run test:runtime-smoke
 ```
 
 Unit and legacy asset HTTP E2E tests do not use the real PostgreSQL database. The

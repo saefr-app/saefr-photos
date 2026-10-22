@@ -1,14 +1,14 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** M9 foundation through `3679682`, plus M10 checkpoints `7c9fc9d` and `d5d91d7` and the uncommitted Phase 10B.5 changes on `feat/m10-auth-foundation`. Phase 10B.5 awaits maintainer review. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** M9 foundation through `3679682`, M10 checkpoints `7c9fc9d`, `d5d91d7` and `903b2a6`, plus uncommitted Phase 10B.6 verification on `feat/m10-auth-foundation`. The M10 feature branch awaits independent review and a separately approved PR. **Implemented** and **planned** are deliberately separated.
 
-## M10 Phase 10B.5 current boundary
+## M10 authentication foundation and current privacy boundary
 
 The production `AppModule` no longer imports `AssetsModule`. Before listening, Fastify registers an `onRequest` asset-namespace boundary, so multipart parsing and asset storage code are never reached through the production API. Anonymous asset requests return 401; a valid browser session, including an administrator, receives a fixed 503. A failed session lookup also returns a sanitized 503. Existing asset code remains exercised through an isolated test module only. No legacy ownerless asset is assigned to a user.
 
 The backend now requires an exact `APP_ORIGIN`. Production requires HTTPS; development/test HTTP is limited to loopback. Browser login at `/api/v1/auth/login` issues a random opaque session credential in an HttpOnly, SameSite=Lax cookie (`__Host-saefr_session` with Secure/Path=/ in production). PostgreSQL stores only its SHA-256 hash. Session resolution checks current account status and expiry on every protected request. Login, `/api/v1/me`, password change, logout, logout-all and own-session list/revocation are implemented. Phase 10B.5 adds administrator-only ordinary-user creation, account listing and account disable. Creation and disable reverify the administrator password under a user-row lock; disable serializes concurrent administrator operations before revoking target sessions. Unsafe authenticated requests require exact Origin and a separate session CSRF token. A default-deny Nest guard protects non-public routes. The single-process login and password-work limits are bounded, with restart and multi-node limits documented in the phase reports.
 
-Startup checks the strict managed M10 schema and fails before listening if it is missing or incompatible. It never runs migrations. Swagger is disabled in the production composition by default. M10 remains incomplete and is **not** a self-hostable multi-user photo release: M11 must supply owner mapping and authorization before media can be enabled.
+Startup checks the strict managed M10 schema and fails before listening if it is missing or incompatible. It never runs migrations. Swagger is disabled in the production composition by default. M10 authentication is implemented on the feature branch but is **not** a self-hostable multi-user photo release: M11 must supply owner mapping and authorization before media can be enabled. Phase 10B.6 expanded Origin, CSRF, restricted-session and asset-lockdown regressions; its actual results are in the [Phase 10B.6 report](development/milestone-10b6-report.md).
 
 ## Current system
 
@@ -63,11 +63,12 @@ The flow below is retained for M11 and test coverage; the production application
 server-nest/
   src/
     main.ts              # app bootstrap, asset boundary, schema readiness
-    app.module.ts        # Config, Health, Auth; no production AssetsModule
+    app.module.ts        # Config, Health, Auth, Users; no production AssetsModule
     runtime-config.ts    # validated API runtime settings and defaults
     errors/              # safe HTTP exception responses and log categories
     assets/              # HTTP controller, orchestration, Kysely repository, DTO
     auth/                # browser sessions, guard, origin/CSRF, asset boundary
+    users/               # administrator account API and local operator tools
     database/            # connection pool, Kysely types, DB ping
       migrations/        # standalone CLI, schema checks, immutable versions
     health/              # health and readiness checks

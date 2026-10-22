@@ -248,6 +248,11 @@ describe('M10 browser authentication on disposable PostgreSQL and a real localho
         'X-Saefr-Login': '1',
       },
       { 'Content-Type': 'application/json', 'X-Saefr-Login': '1' },
+      {
+        Origin: 'null',
+        'Content-Type': 'application/json',
+        'X-Saefr-Login': '1',
+      },
       { Origin: origin, 'Content-Type': 'application/json' },
     ] as Array<Record<string, string>>) {
       const response = await request('/api/v1/auth/login', {
@@ -264,6 +269,20 @@ describe('M10 browser authentication on disposable PostgreSQL and a real localho
     });
     expect(bearer.status).toBe(401);
     expect(await bearer.text()).not.toContain('private');
+    expect(
+      (
+        await request('/api/v1/me', {
+          headers: { Authorization: 'Bearer private' },
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await request('/api/v1/me', {
+          headers: { Cookie: cookie, 'Proxy-Authorization': 'Basic private' },
+        })
+      ).status,
+    ).toBe(401);
   });
 
   it.each([
@@ -319,6 +338,17 @@ describe('M10 browser authentication on disposable PostgreSQL and a real localho
       headers: { Cookie: cookie, Origin: origin },
     });
     expect(noCsrf.status).toBe(403);
+    for (const headers of [
+      { Cookie: cookie, 'X-CSRF-Token': body.csrfToken },
+      { Cookie: cookie, Origin: 'null', 'X-CSRF-Token': body.csrfToken },
+      { Cookie: cookie, Origin: origin, 'X-CSRF-Token': 'invalid' },
+    ] as Array<Record<string, string>>) {
+      const response = await request('/api/v1/auth/logout', {
+        method: 'POST',
+        headers,
+      });
+      expect(response.status).toBe(403);
+    }
     const foreign = await request('/api/v1/auth/logout', {
       ...unsafe(cookie, body.csrfToken),
       headers: {
@@ -461,6 +491,24 @@ describe('M10 browser authentication on disposable PostgreSQL and a real localho
     expect(
       new Date(first.body.session.expiresAt).getTime() - Date.now(),
     ).toBeLessThan(16 * 60_000);
+    expect(
+      (await request('/api/v1/me', { headers: { Cookie: first.cookie } }))
+        .status,
+    ).toBe(200);
+    expect(
+      (
+        await request('/api/v1/auth/sessions', {
+          headers: { Cookie: first.cookie },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await request('/api/v1/users', {
+          headers: { Cookie: first.cookie },
+        })
+      ).status,
+    ).toBe(403);
     const changed = await request(
       '/api/v1/auth/password',
       unsafe(first.cookie, first.body.csrfToken, {

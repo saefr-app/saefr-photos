@@ -39,11 +39,15 @@ describe('production asset lockdown before login activation', () => {
   it.each([
     ['GET', '/api/v1/assets'],
     ['GET', '/api/v1/assets/'],
+    ['GET', '/api/v1/%61ssets'],
+    ['GET', '/api/v1/assets/id'],
     ['GET', '/api/v1/assets/id/original?x=1'],
     ['GET', '/api/v1/assets/id/thumbnail'],
     ['GET', '/api/v1/assets/unknown/nested'],
     ['POST', '/api/v1/assets/upload'],
+    ['POST', '/api/v1/assets/upload/'],
     ['HEAD', '/api/v1/assets/id/original'],
+    ['HEAD', '/api/v1/assets/id/thumbnail'],
   ] as const)(
     'rejects anonymous %s %s before route or multipart work',
     async (method, url) => {
@@ -66,24 +70,38 @@ describe('production asset lockdown before login activation', () => {
     },
   );
 
-  it('returns the same unavailable response to an authenticated user or administrator', async () => {
-    resolveActor.mockResolvedValue({ id: 'user' });
-    const user = await app.inject({
-      method: 'GET',
-      url: '/api/v1/assets/id/original',
-    });
-    resolveActor.mockResolvedValue({ id: 'admin' });
-    const admin = await app.inject({
-      method: 'POST',
-      url: '/api/v1/assets/upload',
-    });
-    for (const response of [user, admin]) {
-      expect(response.statusCode).toBe(503);
-      expect(response.json()).toEqual({
-        statusCode: 503,
-        message: 'Asset access is unavailable',
-        error: 'Service Unavailable',
-      });
+  it('returns the same unavailable response for every authenticated asset operation', async () => {
+    const operations = [
+      { method: 'GET', url: '/api/v1/assets' },
+      { method: 'GET', url: '/api/v1/assets/id' },
+      { method: 'GET', url: '/api/v1/assets/id/original' },
+      { method: 'GET', url: '/api/v1/assets/id/thumbnail' },
+      { method: 'GET', url: '/api/v1/assets/unknown/nested' },
+      { method: 'GET', url: '/api/v1/assets/' },
+      { method: 'HEAD', url: '/api/v1/assets/id/original' },
+      {
+        method: 'POST',
+        url: '/api/v1/assets/upload',
+        headers: { 'content-type': 'multipart/form-data; boundary=bad' },
+        payload: 'incomplete multipart body',
+      },
+    ] as const;
+    for (const actor of ['user', 'admin']) {
+      resolveActor.mockResolvedValue({ userId: actor });
+      for (const operation of operations) {
+        const response = await app.inject(operation);
+        expect(response.statusCode).toBe(503);
+        expect(response.headers['content-range']).toBeUndefined();
+        expect(response.headers['content-disposition']).toBeUndefined();
+        expect(response.headers['cache-control']).toBe('no-store');
+        if (operation.method === 'HEAD') expect(response.body).toBe('');
+        else
+          expect(response.json()).toEqual({
+            statusCode: 503,
+            message: 'Asset access is unavailable',
+            error: 'Service Unavailable',
+          });
+      }
     }
   });
 
