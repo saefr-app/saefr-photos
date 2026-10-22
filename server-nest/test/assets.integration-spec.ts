@@ -18,11 +18,12 @@ const ids = {
   third: '00000000-0000-4000-8000-000000000003',
   missing: '00000000-0000-4000-8000-000000000099',
 };
+const ownerId = '00000000-0000-4000-8000-000000000100';
 
 function asset(
   id: string,
   createdAt = new Date('2026-10-16T12:00:00.000Z'),
-): AssetTable {
+): Omit<AssetTable, 'owner_id'> & { owner_id: string } {
   return {
     id,
     filename: `${id}.jpg`,
@@ -30,6 +31,7 @@ function asset(
     size: 1234,
     storage_path: `/isolated-test/originals/${id}.jpg`,
     created_at: createdAt,
+    owner_id: ownerId,
   };
 }
 
@@ -61,6 +63,9 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
     expect(identity.rows[0].version_number).toBeLessThan(190000);
 
     await migrateToLatest(database.db);
+    await sql`insert into public.app_user values
+      (${ownerId}::uuid, 'assetfixture', 'test-hash', 'user', 'active', false,
+       '2026-10-21T00:00:00Z', '2026-10-21T00:00:00Z')`.execute(database.db);
     repository = new AssetsRepository(database);
   });
 
@@ -105,6 +110,7 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
         data_type: 'timestamp with time zone',
         is_nullable: 'NO',
       },
+      { column_name: 'owner_id', data_type: 'uuid', is_nullable: 'YES' },
     ]);
   });
 
@@ -150,11 +156,10 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
 
   it('round-trips offset timestamps and serializes public UTC metadata', async () => {
     const input = asset(ids.first);
-    await sql`insert into asset (id, filename, mime_type, size, storage_path, created_at)
+    await sql`insert into asset (id, filename, mime_type, size, storage_path, created_at, owner_id)
       values (${input.id}::uuid, ${input.filename}, ${input.mime_type},
-        ${input.size}, ${input.storage_path}, ${'2026-10-16 17:30:00+05:30'}::timestamptz)`.execute(
-      database.db,
-    );
+        ${input.size}, ${input.storage_path}, ${'2026-10-16 17:30:00+05:30'}::timestamptz,
+        ${ownerId}::uuid)`.execute(database.db);
     const stored = await repository.findById(input.id);
     expect(stored?.created_at).toBeInstanceOf(Date);
     expect(stored?.created_at.toISOString()).toBe('2026-10-16T12:00:00.000Z');

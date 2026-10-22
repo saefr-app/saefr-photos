@@ -16,16 +16,20 @@ import {
 } from 'vitest';
 
 import { DatabaseService } from '../src/database/database.service.js';
+import { AuthSessionService } from '../src/auth/auth-session.service.js';
+import { PasswordService } from '../src/auth/password.service.js';
 import {
   createMigrationDatabase,
   migrationConfig,
 } from '../src/database/migrations/migration-config.js';
 import {
   AUTHENTICATION_MIGRATION,
+  ASSET_OWNERSHIP_MIGRATION,
   createMigrationProvider,
   INITIAL_ASSET_MIGRATION,
 } from '../src/database/migrations/migration-provider.js';
 import * as initialAsset from '../src/database/migrations/versions/202610170001_initial_asset.js';
+import * as authenticationFoundation from '../src/database/migrations/versions/202610210001_authentication_foundation.js';
 import {
   getMigrationStatus,
   migrateToLatest,
@@ -119,10 +123,18 @@ describe('PostgreSQL migrations and legacy baselining', () => {
   async function assetSnapshot() {
     return (
       await sql`select c.oid, c.relfilenode,
-      (select jsonb_agg(to_jsonb(a) order by a.id) from public.asset a) as records
+      (select jsonb_agg(to_jsonb(a) - 'owner_id' order by a.id)
+        from public.asset a) as records
       from pg_catalog.pg_class c where c.oid = 'public.asset'::regclass`.execute(
         db,
       )
+    ).rows;
+  }
+
+  async function fullAssetRecords() {
+    return (
+      await sql`select jsonb_agg(to_jsonb(a) order by a.id) as records
+        from public.asset a`.execute(db)
     ).rows;
   }
 
@@ -137,20 +149,78 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     ).rows;
   }
 
+  async function managedSnapshot() {
+    return {
+      history: await ledger(),
+      tableNames: await tables(),
+      asset: await assetSnapshot(),
+      fullAssetRecords: await fullAssetRecords(),
+      columns: (
+        await sql`select table_name, column_name, data_type, is_nullable, column_default
+          from information_schema.columns where table_schema = 'public'
+            and table_name in ('asset', 'app_user', 'auth_session')
+          order by table_name, ordinal_position`.execute(db)
+      ).rows,
+      constraints: (
+        await sql`select c.relname, k.conname, k.contype, k.convalidated,
+            k.conenforced, pg_catalog.pg_get_constraintdef(k.oid) as definition
+          from pg_catalog.pg_constraint k
+            join pg_catalog.pg_class c on c.oid = k.conrelid
+            join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public'
+            and c.relname in ('asset', 'app_user', 'auth_session')
+          order by c.relname, k.conname`.execute(db)
+      ).rows,
+      indexes: (
+        await sql`select tablename, indexname, indexdef from pg_catalog.pg_indexes
+          where schemaname = 'public'
+            and tablename in ('asset', 'app_user', 'auth_session')
+          order by tablename, indexname`.execute(db)
+      ).rows,
+      status: await getMigrationStatus(db),
+    };
+  }
+
+  function m8Provider(baselineLegacy = false) {
+    return {
+      async getMigrations() {
+        return {
+          [INITIAL_ASSET_MIGRATION]: {
+            up: (connection: Kysely<unknown>) =>
+              initialAsset.up(connection, baselineLegacy),
+            down: initialAsset.down,
+          },
+        };
+      },
+    };
+  }
+
+  function m10Provider() {
+    return {
+      async getMigrations() {
+        return {
+          [INITIAL_ASSET_MIGRATION]: initialAsset,
+          [AUTHENTICATION_MIGRATION]: authenticationFoundation,
+        };
+      },
+    };
+  }
+
   async function migrateM8Only(baselineLegacy = false) {
     const migrator = new Migrator({
       db,
       migrationTableSchema: 'public',
-      provider: {
-        async getMigrations() {
-          return {
-            [INITIAL_ASSET_MIGRATION]: {
-              up: (connection) => initialAsset.up(connection, baselineLegacy),
-              down: initialAsset.down,
-            },
-          };
-        },
-      },
+      provider: m8Provider(baselineLegacy),
+    });
+    const result = await migrator.migrateToLatest();
+    if (result.error) throw result.error;
+  }
+
+  async function migrateM10Only() {
+    const migrator = new Migrator({
+      db,
+      migrationTableSchema: 'public',
+      provider: m10Provider(),
     });
     const result = await migrator.migrateToLatest();
     if (result.error) throw result.error;
@@ -167,6 +237,11 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       },
       {
         migrationName: AUTHENTICATION_MIGRATION,
+        direction: 'Up',
+        status: 'Success',
+      },
+      {
+        migrationName: ASSET_OWNERSHIP_MIGRATION,
         direction: 'Up',
         status: 'Success',
       },
@@ -198,6 +273,12 @@ describe('PostgreSQL migrations and legacy baselining', () => {
         column_name: 'mime_type',
         data_type: 'character varying',
         is_nullable: 'NO',
+        column_default: null,
+      },
+      {
+        column_name: 'owner_id',
+        data_type: 'uuid',
+        is_nullable: 'YES',
         column_default: null,
       },
       {
@@ -233,7 +314,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     await migrateToLatest(db, true);
     expect(await assetSnapshot()).toEqual(original);
     const firstLedger = await ledger();
-    expect(firstLedger).toHaveLength(2);
+    expect(firstLedger).toHaveLength(3);
     expect(await migrateToLatest(db, true)).toEqual([]);
     expect(await migrateToLatest(db)).toEqual([]);
     expect(await ledger()).toEqual(firstLedger);
@@ -256,6 +337,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     expect((await getMigrationStatus(db)).migrations).toEqual([
       { name: INITIAL_ASSET_MIGRATION, applied: true },
       { name: AUTHENTICATION_MIGRATION, applied: false },
+      { name: ASSET_OWNERSHIP_MIGRATION, applied: false },
     ]);
 
     expect(await migrateToLatest(db)).toEqual([
@@ -264,11 +346,403 @@ describe('PostgreSQL migrations and legacy baselining', () => {
         direction: 'Up',
         status: 'Success',
       },
+      {
+        migrationName: ASSET_OWNERSHIP_MIGRATION,
+        direction: 'Up',
+        status: 'Success',
+      },
     ]);
     expect(await assetSnapshot()).toEqual(original);
     expect((await ledger())[0]).toEqual(originalLedger[0]);
     expect(await migrateToLatest(db)).toEqual([]);
     expect(await assetSnapshot()).toEqual(original);
+  });
+
+  it('upgrades an M10-managed installation without rewriting ownerless records or earlier history', async () => {
+    await migrateM10Only();
+    await sql`insert into public.asset
+      (id, filename, mime_type, size, storage_path, created_at) values
+      ('00000000-0000-4000-8000-000000000004', 'prior.jpg', 'image/jpeg', 42,
+       '/preserved/originals/prior.jpg', '2026-10-19 08:30:00+05:30')`.execute(
+      db,
+    );
+    const before = await assetSnapshot();
+    const history = await ledger();
+    expect((await getMigrationStatus(db)).migrations[2]).toEqual({
+      name: ASSET_OWNERSHIP_MIGRATION,
+      applied: false,
+    });
+    expect(await migrateToLatest(db)).toHaveLength(1);
+    expect(await assetSnapshot()).toEqual(before);
+    expect((await ledger()).slice(0, 2)).toEqual(history);
+    expect(
+      (
+        await sql<{
+          owner_id: string | null;
+        }>`select owner_id from public.asset`.execute(db)
+      ).rows,
+    ).toEqual([{ owner_id: null }]);
+    expect(await migrateToLatest(db)).toEqual([]);
+  });
+
+  it('creates the exact nullable ownership column, FK, check and ordering index', async () => {
+    await migrateToLatest(db);
+    const triggerProbe = await sql`select c.relname as relation,
+      p.proname as function_name, pn.nspname as function_schema,
+      t.tgtype::integer as event_type, t.tgenabled as enabled,
+      t.tgisinternal as internal, t.tgdeferrable as deferrable,
+      t.tginitdeferred as initially_deferred
+      from pg_catalog.pg_constraint k
+      join pg_catalog.pg_trigger t on t.tgconstraint = k.oid
+      join pg_catalog.pg_class c on c.oid = t.tgrelid
+      join pg_catalog.pg_proc p on p.oid = t.tgfoid
+      join pg_catalog.pg_namespace pn on pn.oid = p.pronamespace
+      where k.conrelid = 'public.asset'::regclass and k.conname = 'asset_owner_id_fkey'
+      order by c.relname, p.proname`.execute(db);
+    expect(triggerProbe.rows).toEqual([
+      {
+        relation: 'app_user',
+        function_name: 'RI_FKey_noaction_upd',
+        function_schema: 'pg_catalog',
+        event_type: 17,
+        enabled: 'O',
+        internal: true,
+        deferrable: false,
+        initially_deferred: false,
+      },
+      {
+        relation: 'app_user',
+        function_name: 'RI_FKey_restrict_del',
+        function_schema: 'pg_catalog',
+        event_type: 9,
+        enabled: 'O',
+        internal: true,
+        deferrable: false,
+        initially_deferred: false,
+      },
+      {
+        relation: 'asset',
+        function_name: 'RI_FKey_check_ins',
+        function_schema: 'pg_catalog',
+        event_type: 5,
+        enabled: 'O',
+        internal: true,
+        deferrable: false,
+        initially_deferred: false,
+      },
+      {
+        relation: 'asset',
+        function_name: 'RI_FKey_check_upd',
+        function_schema: 'pg_catalog',
+        event_type: 17,
+        enabled: 'O',
+        internal: true,
+        deferrable: false,
+        initially_deferred: false,
+      },
+    ]);
+    const column = await sql<{
+      type: string;
+      required: boolean;
+      default: string | null;
+    }>`
+      select pg_catalog.format_type(a.atttypid, a.atttypmod) as type,
+        a.attnotnull as required, pg_catalog.pg_get_expr(d.adbin, d.adrelid) as default
+      from pg_catalog.pg_attribute a left join pg_catalog.pg_attrdef d
+        on d.adrelid = a.attrelid and d.adnum = a.attnum
+      where a.attrelid = 'public.asset'::regclass and a.attname = 'owner_id'`.execute(
+      db,
+    );
+    expect(column.rows).toEqual([
+      { type: 'uuid', required: false, default: null },
+    ]);
+    const constraints = await sql<{
+      name: string;
+      valid: boolean;
+      enforced: boolean;
+      definition: string;
+    }>`
+      select conname as name, convalidated as valid, conenforced as enforced,
+        pg_catalog.pg_get_constraintdef(oid) as definition
+      from pg_catalog.pg_constraint where conrelid = 'public.asset'::regclass
+        and contype <> 'n' order by conname`.execute(db);
+    expect(
+      constraints.rows.map((row) => [row.name, row.valid, row.enforced]),
+    ).toEqual([
+      ['asset_owner_id_fkey', true, true],
+      ['asset_owner_required_check', false, true],
+      ['asset_pkey', true, true],
+    ]);
+    expect(constraints.rows[0].definition).toContain(
+      'REFERENCES app_user(id) ON DELETE RESTRICT',
+    );
+    expect(constraints.rows[1].definition).toContain('NOT VALID');
+    const index = await sql<{
+      definition: string;
+    }>`select pg_catalog.pg_get_indexdef(indexrelid) as definition
+      from pg_catalog.pg_index where indrelid = 'public.asset'::regclass and not indisprimary`.execute(
+      db,
+    );
+    expect(index.rows).toEqual([
+      {
+        definition:
+          'CREATE INDEX asset_owner_created_id_idx ON public.asset USING btree (owner_id, created_at DESC, id DESC)',
+      },
+    ]);
+  });
+
+  it.each([
+    ['asset', 'RI_FKey_check_ins'],
+    ['app_user', 'RI_FKey_restrict_del'],
+  ])(
+    'rejects a disabled M11 ownership FK trigger on %s without repair',
+    async (relation, functionName) => {
+      await legacyFixture();
+      await migrateToLatest(db, true);
+      const originalLedger = await ledger();
+      const originalAssets = await assetSnapshot();
+      const originalFullAssets = await fullAssetRecords();
+      const originalStatus = await getMigrationStatus(db);
+      const trigger = await sql<{ name: string }>`select t.tgname as name
+        from pg_catalog.pg_constraint k
+          join pg_catalog.pg_trigger t on t.tgconstraint = k.oid
+          join pg_catalog.pg_proc p on p.oid = t.tgfoid
+        where k.conrelid = 'public.asset'::regclass
+          and k.conname = 'asset_owner_id_fkey'
+          and t.tgrelid = ${`public.${relation}`}::regclass
+          and p.proname = ${functionName}`.execute(db);
+      expect(trigger.rows).toHaveLength(1);
+      const table = sql.id('public', relation);
+      const triggerName = sql.id(trigger.rows[0].name);
+      await sql`alter table ${table} disable trigger ${triggerName}`.execute(
+        db,
+      );
+
+      await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M11');
+      await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M11');
+      await expect(
+        new AuthSessionService(
+          { db } as DatabaseService,
+          new PasswordService(),
+        ).assertReady(),
+      ).rejects.toThrow('Incompatible M11');
+      expect(await ledger()).toEqual(originalLedger);
+      expect(await assetSnapshot()).toEqual(originalAssets);
+      expect(await fullAssetRecords()).toEqual(originalFullAssets);
+
+      await sql`alter table ${table} enable trigger ${triggerName}`.execute(db);
+      expect(await getMigrationStatus(db)).toEqual(originalStatus);
+      await new AuthSessionService(
+        { db } as DatabaseService,
+        new PasswordService(),
+      ).assertReady();
+      const authTriggers = await sql<{
+        enabled: string;
+      }>`select t.tgenabled as enabled
+        from pg_catalog.pg_constraint k
+          join pg_catalog.pg_trigger t on t.tgconstraint = k.oid
+        where k.conrelid = 'public.auth_session'::regclass
+          and k.conname = 'auth_session_user_id_fkey'`.execute(db);
+      expect(authTriggers.rows).toHaveLength(4);
+      expect(authTriggers.rows.every((row) => row.enabled === 'O')).toBe(true);
+      expect(await ledger()).toEqual(originalLedger);
+      expect(await assetSnapshot()).toEqual(originalAssets);
+      expect(await fullAssetRecords()).toEqual(originalFullAssets);
+    },
+  );
+
+  it('rejects new NULL ownership, unknown owners and NULL updates while retaining old ownerless rows', async () => {
+    await legacyFixture();
+    await migrateToLatest(db, true);
+    const original = await assetSnapshot();
+    await expect(
+      sql`insert into public.asset
+      (id, filename, mime_type, size, storage_path, created_at) values
+      ('00000000-0000-4000-8000-000000000005', 'new.jpg', 'image/jpeg', 1,
+       '/isolated/new.jpg', now())`.execute(db),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      sql`update public.asset set filename = 'renamed.jpg'
+      where id = '00000000-0000-4000-8000-000000000001'`.execute(db),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      sql`insert into public.asset
+      (id, filename, mime_type, size, storage_path, created_at, owner_id) values
+      ('00000000-0000-4000-8000-000000000005', 'new.jpg', 'image/jpeg', 1,
+       '/isolated/new.jpg', now(), '00000000-0000-4000-8000-000000000099')`.execute(
+        db,
+      ),
+    ).rejects.toMatchObject({ code: '23503' });
+    expect(await assetSnapshot()).toEqual(original);
+    await sql`insert into public.app_user values
+      ('00000000-0000-4000-8000-000000000011', 'assetowner', 'test-hash',
+       'user', 'disabled', false, now(), now())`.execute(db);
+    await sql`update public.asset set owner_id = '00000000-0000-4000-8000-000000000011'
+      where id = '00000000-0000-4000-8000-000000000001'`.execute(db);
+    await expect(
+      sql`delete from public.app_user where username = 'assetowner'`.execute(
+        db,
+      ),
+    ).rejects.toMatchObject({ code: '23001' });
+    expect(
+      (
+        await sql<{
+          count: string;
+        }>`select count(*) from public.asset where owner_id is null`.execute(db)
+      ).rows[0].count,
+    ).toBe('1');
+  });
+
+  it('rejects a premature ownership column before M11', async () => {
+    await migrateM10Only();
+    const history = await ledger();
+    await sql`alter table public.asset add column owner_id uuid`.execute(db);
+    await expect(migrateToLatest(db)).rejects.toThrow(
+      'Incompatible public.asset',
+    );
+    expect(await ledger()).toEqual(history);
+  });
+
+  it('rejects a reserved ownership index name before applying M11', async () => {
+    await migrateM10Only();
+    const history = await ledger();
+    await sql`create table public.unrelated_owner (id uuid)`.execute(db);
+    await sql`create index asset_owner_created_id_idx on public.unrelated_owner (id)`.execute(
+      db,
+    );
+    await expect(migrateToLatest(db)).rejects.toThrow(
+      'reserved M11 ownership object name',
+    );
+    expect(await ledger()).toEqual(history);
+    expect(
+      (
+        await sql<{
+          present: boolean;
+        }>`select exists (select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'asset' and column_name = 'owner_id') as present`.execute(
+          db,
+        )
+      ).rows[0].present,
+    ).toBe(false);
+  });
+
+  it('serializes two M10-to-M11 runners and records ownership only once', async () => {
+    await migrateM10Only();
+    const other = createMigrationDatabase(migrationConfig(migrationEnv));
+    try {
+      const results = await Promise.all([
+        migrateToLatest(db),
+        migrateToLatest(other),
+      ]);
+      expect(
+        results.map((result) => result.length).sort((a, b) => a - b),
+      ).toEqual([0, 1]);
+      expect(await ledger()).toHaveLength(3);
+      expect((await getMigrationStatus(db)).migrations[2].applied).toBe(true);
+    } finally {
+      await other.destroy();
+    }
+  });
+
+  it('rolls back M11 DDL and ledger when a following version fails', async () => {
+    await migrateM10Only();
+    const history = await ledger();
+    const provider = createMigrationProvider();
+    const migrator = new Migrator({
+      db,
+      migrationTableSchema: 'public',
+      provider: {
+        async getMigrations() {
+          return {
+            ...(await provider.getMigrations()),
+            '202610220002_test_failure': {
+              async up() {
+                throw new Error('Intentional test migration failure');
+              },
+            },
+          };
+        },
+      },
+    });
+    expect((await migrator.migrateToLatest()).error).toBeDefined();
+    expect(await ledger()).toEqual(history);
+    expect(
+      (
+        await sql<{
+          present: boolean;
+        }>`select exists (select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'asset' and column_name = 'owner_id') as present`.execute(
+          db,
+        )
+      ).rows[0].present,
+    ).toBe(false);
+    expect(await migrateToLatest(db)).toHaveLength(1);
+  });
+
+  it('rejects an M11 ledger entry with only M10 schema', async () => {
+    await migrateM10Only();
+    const history = await ledger();
+    await sql`insert into public.kysely_migration values
+      (${ASSET_OWNERSHIP_MIGRATION}, '2026-10-23T00:00:00.000Z')`.execute(db);
+    await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M11');
+    await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M11');
+    expect((await ledger()).slice(0, 2)).toEqual(history);
+  });
+
+  it.each([
+    [
+      'owner default',
+      'alter table public.asset alter column owner_id set default gen_random_uuid()',
+    ],
+    [
+      'wrong FK action',
+      [
+        'alter table public.asset drop constraint asset_owner_id_fkey',
+        'alter table public.asset add constraint asset_owner_id_fkey foreign key (owner_id) references public.app_user(id) on delete cascade',
+      ],
+    ],
+    [
+      'missing FK',
+      'alter table public.asset drop constraint asset_owner_id_fkey',
+    ],
+    [
+      'validated check',
+      'alter table public.asset validate constraint asset_owner_required_check',
+    ],
+    [
+      'wrong check',
+      [
+        'alter table public.asset drop constraint asset_owner_required_check',
+        'alter table public.asset add constraint asset_owner_required_check check (size > 0) not valid',
+      ],
+    ],
+    [
+      'wrong index order',
+      [
+        'drop index public.asset_owner_created_id_idx',
+        'create index asset_owner_created_id_idx on public.asset(owner_id, created_at, id)',
+      ],
+    ],
+    ['missing index', 'drop index public.asset_owner_created_id_idx'],
+    [
+      'extra trigger',
+      [
+        'create function public.test_trigger() returns trigger language plpgsql as $$ begin return new; end $$',
+        'create trigger test_asset_trigger before update on public.asset for each row execute function public.test_trigger()',
+      ],
+    ],
+    ['row security', 'alter table public.asset enable row level security'],
+  ])('rejects M11 schema drift: %s', async (_name, mutation) => {
+    await migrateToLatest(db);
+    const history = await ledger();
+    for (const statement of typeof mutation === 'string'
+      ? [mutation]
+      : mutation) {
+      await sql.raw(statement).execute(db); // Static SQL in isolated disposable database.
+    }
+    await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M11');
+    await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M11');
+    expect(await ledger()).toEqual(history);
   });
 
   it('creates exactly the proposed required auth columns without defaults', async () => {
@@ -512,10 +986,11 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     ]);
     expect(await assetSnapshot()).toEqual(originalAsset);
     expect(await ledger()).toEqual(originalLedger);
-    expect(await migrateToLatest(db)).toHaveLength(1);
+    expect(await migrateToLatest(db)).toHaveLength(2);
     expect((await ledger()).map((row) => row.name)).toEqual([
       INITIAL_ASSET_MIGRATION,
       AUTHENTICATION_MIGRATION,
+      ASSET_OWNERSHIP_MIGRATION,
     ]);
   });
 
@@ -535,8 +1010,8 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       ]);
       expect(
         results.map((result) => result.length).sort((a, b) => a - b),
-      ).toEqual([0, 2]);
-      expect(await ledger()).toHaveLength(2);
+      ).toEqual([0, 3]);
+      expect(await ledger()).toHaveLength(3);
     } finally {
       await other.destroy();
     }
@@ -693,24 +1168,59 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       'kysely_migration_lock',
     ]);
     expect(await ledger()).toEqual([]);
-    expect(await migrateToLatest(db)).toHaveLength(2);
+    expect(await migrateToLatest(db)).toHaveLength(3);
   });
 
-  it('refuses destructive rollback of authentication and a baseline', async () => {
+  it('refuses M11 ownership rollback without changing history, schema or assets', async () => {
     await legacyFixture();
     await migrateToLatest(db, true);
-    const original = await assetSnapshot();
-    const originalLedger = await ledger();
+    const original = await managedSnapshot();
     const migrator = new Migrator({
       db,
       migrationTableSchema: 'public',
       provider: createMigrationProvider(),
     });
     expect((await migrator.migrateDown()).error).toMatchObject({
-      message: expect.stringContaining('cannot be rolled back automatically'),
+      message: expect.stringContaining(
+        'Ownership migration cannot be rolled back automatically',
+      ),
     });
-    expect(await assetSnapshot()).toEqual(original);
-    expect(await ledger()).toEqual(originalLedger);
+    expect(await managedSnapshot()).toEqual(original);
+  });
+
+  it('refuses M10 authentication rollback without changing history, schema or assets', async () => {
+    await legacyFixture();
+    await migrateM8Only(true);
+    await migrateM10Only();
+    const original = await managedSnapshot();
+    const migrator = new Migrator({
+      db,
+      migrationTableSchema: 'public',
+      provider: m10Provider(),
+    });
+    expect((await migrator.migrateDown()).error).toMatchObject({
+      message: expect.stringContaining(
+        'Authentication migration cannot be rolled back automatically',
+      ),
+    });
+    expect(await managedSnapshot()).toEqual(original);
+  });
+
+  it('refuses M8 legacy baseline rollback without changing history, schema or assets', async () => {
+    await legacyFixture();
+    await migrateM8Only(true);
+    const original = await managedSnapshot();
+    const migrator = new Migrator({
+      db,
+      migrationTableSchema: 'public',
+      provider: m8Provider(true),
+    });
+    expect((await migrator.migrateDown()).error).toMatchObject({
+      message: expect.stringContaining(
+        'The initial asset migration cannot be rolled back',
+      ),
+    });
+    expect(await managedSnapshot()).toEqual(original);
   });
 
   async function cli(args: string[]) {

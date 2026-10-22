@@ -1,6 +1,6 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** M9 foundation through `3679682`; M10 merged through [PR #2](https://github.com/saefr-app/saefr-photos/pull/2) into `integration` as `acf6ed44bb870fdae56e68c523ba660af6536897` on 2026-10-22. Post-merge local verification passed; no production deployment or development-database migration has occurred. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** M9 foundation through `3679682`; M10 merged through [PR #2](https://github.com/saefr-app/saefr-photos/pull/2) into `integration` as `acf6ed44bb870fdae56e68c523ba660af6536897` on 2026-10-22. Phase 11B ownership schema is implemented on an uncommitted feature branch and awaiting review. No production deployment or development-database migration has occurred. **Implemented** and **planned** are deliberately separated.
 
 ## M10 authentication foundation and current privacy boundary
 
@@ -88,11 +88,13 @@ The maintainer's `psql \d+ public.asset` inspection confirmed UUID `id`, unbound
 
 The standalone migration CLI uses Kysely `Migrator`, version files and `public.kysely_migration`/`public.kysely_migration_lock`. Fresh installs create the verified schema. Explicitly opted-in legacy baselines validate and lock the existing table, then record the initial version without changing the table or rows. Incompatible schemas/history fail without automatic repair. A runner advisory lock serializes preflight/bootstrap; Kysely applies pending versions and ledger entries transactionally. Metadata bootstrap itself precedes that transaction and may remain after failure.
 
+The Phase 11B version adds nullable `owner_id` to `asset`, an owner FK, ordering index and an enforced but unvalidated non-NULL check. Migration history selects the frozen M8 inspector for pre-M11 assets or an exact M11 inspector after that version. Existing asset rows and paths remain unchanged, with NULL ownership. This schema is only in the feature branch and disposable test databases; the development database was not upgraded. The API still requires M10 readiness and keeps every production asset route locked.
+
 Migration commands require dedicated `MIGRATION_POSTGRES_*` settings and database confirmation, and never run during API startup. See [database-migrations.md](development/database-migrations.md). The application still exposes `created_at` as UTC ISO text and keeps storage paths internal.
 
 ## Known limitations / not yet implemented
 
-- No asset ownership or per-user media authorization. **Do not publicly expose or re-enable** media endpoints before M11 review.
+- Phase 11B adds an owner column and database constraints, but per-user media authorization is not implemented. Existing ownerless rows remain quarantined. **Do not publicly expose or re-enable** media endpoints before the later reviewed M11 route boundary.
 - No asset deletion/trash or cursor pagination.
 - HTTP tests mostly mock repository/storage; Phase 9B also runs upload HTTP cases against real storage in isolated temporary directories. The separate PostgreSQL 18 suite verifies the migrated schema, repository behavior, legacy baselining, repeat runs, concurrency and failure cases using a disposable database. Real development migrations and restoration from a real backup were not exercised.
 - `size` remains a signed 32-bit INTEGER. No large-file or timestamp conversion was introduced. Historical development records were not inspected or changed by M8.

@@ -2,10 +2,12 @@ import type { MigrationProvider } from 'kysely/migration';
 
 import * as initialAsset from './versions/202610170001_initial_asset.js';
 import * as authenticationFoundation from './versions/202610210001_authentication_foundation.js';
+import * as assetOwnership from './versions/202610220001_asset_ownership.js';
 
 export const INITIAL_ASSET_MIGRATION = '202610170001_initial_asset';
 export const AUTHENTICATION_MIGRATION =
   '202610210001_authentication_foundation';
+export const ASSET_OWNERSHIP_MIGRATION = '202610220001_asset_ownership';
 
 // Explicit imports work identically in compiled ESM and Vitest. Append new
 // immutable version files here; never rename or edit an applied migration.
@@ -20,6 +22,7 @@ export function createMigrationProvider(
           down: initialAsset.down,
         },
         [AUTHENTICATION_MIGRATION]: authenticationFoundation,
+        [ASSET_OWNERSHIP_MIGRATION]: assetOwnership,
       };
     },
   };
