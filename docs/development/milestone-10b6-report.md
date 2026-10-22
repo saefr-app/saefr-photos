@@ -1,6 +1,6 @@
 # Milestone 10 — Phase 10B.6 final security verification
 
-- **Status:** Implemented on `feat/m10-auth-foundation`; awaiting independent review. Unstaged and uncommitted.
+- **Status:** Independently reviewed, committed and pushed on `feat/m10-auth-foundation` as `c5cdc0559ac82856d3ad4ed930d58f6fabd1360b`; no PR or `integration` merge has occurred.
 - **Base:** reviewed Phase 10B.5 checkpoint `903b2a62cc084a78901a8e597dd1cef1a4a7764a`.
 - **Date:** 2026-10-22.
 
@@ -54,13 +54,13 @@ The database runner verified random container identity, `postgres:18`, generated
 
 ## Remaining gates and M11 handoff
 
-- Independent maintainer review, an explicitly approved 10B.6 checkpoint, and a separately approved PR into `integration` remain. No CI workflow was added or executed; the repository's automated CI gate for this branch is therefore unverified.
+- Independent 10B.6 review and checkpoint `c5cdc0559ac82856d3ad4ed930d58f6fabd1360b` are complete. Milestone-wide review found no confirmed blocking defect. A reviewed PR into `integration` still requires separate approval; no PR or merge has occurred. No GitHub CI check was executed, so the branch has no CI verification evidence.
 - A real installation needs an isolated upgrade rehearsal, verified database and media backups, a reviewed recovery plan, explicit migration approval and a migration job before API startup. The development database has **not** been upgraded.
 - Deployment must validate HTTPS, reverse-proxy and trusted-proxy settings, browser cookie behavior, temporary-password delivery, host-only recovery access, disabled-administrator restoration and Argon2 performance on target hardware. No production deployment was tested.
 - M11 must design an explicit owner mapping for existing ownerless rows and enforce owner/share predicates on list, upload, metadata, originals, thumbnails, HEAD/Range and aliases before reopening asset routes. Administrator role is not photo ownership. The frozen M8 legacy baseline must remain intact while the current-state validator evolves for any future ownership migration.
 - Filesystem write/cleanup failure injection, upload crash recovery and cross-system database/filesystem reconciliation remain outside M10.
 
-**Recommendation:** M10 is ready for independent review of this phase. After that review and a separately approved checkpoint, the feature branch can be considered for an `integration` pull request. It is not ready for public deployment or M11 asset access.
+**Recommendation:** M10 is ready for a separately approved, reviewed `integration` pull request. Manual API testing used an isolated temporary database that was subsequently removed; the existing development database was not migrated. Production ownerless asset routes remain disabled. M10 is not ready for public deployment or M11 asset access.
 
 ## Repeat verification
 

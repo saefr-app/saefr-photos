@@ -1,8 +1,10 @@
 # Saefr Photos backend
 
 NestJS 12, Fastify, Kysely, PostgreSQL 18 and Sharp. The M10 authentication
-foundation is implemented on its feature branch, pending independent review;
+foundation is committed and pushed on its feature branch through `c5cdc05`;
 ownerless asset endpoints remain blocked pending M11 ownership.
+The milestone-wide review found no confirmed blocking defect; no PR or merge
+has occurred, and M10 is not production deployment-ready.
 Keep the API local until the remaining authorization and deployment work is reviewed.
 Run npm commands from `server-nest/` with Node.js 24.
 

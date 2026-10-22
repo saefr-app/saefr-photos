@@ -1,6 +1,6 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** M9 foundation through `3679682`, M10 checkpoints `7c9fc9d`, `d5d91d7` and `903b2a6`, plus uncommitted Phase 10B.6 verification on `feat/m10-auth-foundation`. The M10 feature branch awaits independent review and a separately approved PR. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** M9 foundation through `3679682` and M10 checkpoints through `c5cdc0559ac82856d3ad4ed930d58f6fabd1360b` on `feat/m10-auth-foundation`. All M10 phases are committed and pushed; the milestone-wide review found no confirmed blocking defect. No PR or `integration` merge has occurred. **Implemented** and **planned** are deliberately separated.
 
 ## M10 authentication foundation and current privacy boundary
 
