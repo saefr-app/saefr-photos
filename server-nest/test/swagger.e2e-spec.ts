@@ -5,7 +5,7 @@ import {
 } from '@nestjs/platform-fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { AppModule } from '../src/app.module.js';
+import { LegacyAssetsTestModule } from './helpers/legacy-assets-test.module.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { setupSwagger } from '../src/openapi/swagger.js';
 
@@ -14,7 +14,7 @@ describe('Swagger documentation (e2e)', () => {
 
   beforeAll(async () => {
     const moduleFixture = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [LegacyAssetsTestModule],
     })
       .overrideProvider(DatabaseService)
       .useValue({

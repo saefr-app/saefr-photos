@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { RuntimeConfigError, validateRuntimeConfig } from './runtime-config.js';
 
 const required = {
+  APP_ORIGIN: 'http://127.0.0.1:3000',
   POSTGRES_DB: 'saefr_test',
   POSTGRES_USER: 'saefr_test',
   POSTGRES_PASSWORD: 'test-only-secret',
@@ -28,6 +29,7 @@ describe('validateRuntimeConfig', () => {
       validateRuntimeConfig({
         ...required,
         NODE_ENV: 'production',
+        APP_ORIGIN: 'https://photos.example.test',
         HOST: 'localhost',
         PORT: '4100',
         POSTGRES_HOST: 'db.internal',
@@ -95,5 +97,31 @@ describe('validateRuntimeConfig', () => {
       expect(error).toBeInstanceOf(RuntimeConfigError);
       expect(String(error)).not.toContain(secret);
     }
+  });
+
+  it.each([
+    undefined,
+    'http://photos.example.test',
+    'https://photos.example.test/path',
+    'https://photos.example.test/',
+    'https://user:secret@photos.example.test',
+    'https://*.example.test',
+  ])('rejects unsafe APP_ORIGIN %s without echoing it', (origin) => {
+    expect(() =>
+      validateRuntimeConfig({ ...required, APP_ORIGIN: origin }),
+    ).toThrow(RuntimeConfigError);
+  });
+
+  it('requires HTTPS origin in production', () => {
+    expect(() =>
+      validateRuntimeConfig({ ...required, NODE_ENV: 'production' }),
+    ).toThrow('APP_ORIGIN');
+    expect(
+      validateRuntimeConfig({
+        ...required,
+        NODE_ENV: 'production',
+        APP_ORIGIN: 'https://photos.example.test',
+      }).APP_ORIGIN,
+    ).toBe('https://photos.example.test');
   });
 });

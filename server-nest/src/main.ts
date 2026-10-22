@@ -5,9 +5,11 @@ import {
   type NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 
-import { setupSwagger } from './openapi/swagger.js';
 import { RuntimeConfigError } from './runtime-config.js';
 import { safeErrorCode } from './errors/safe-error-code.js';
+import { registerAssetLockdown } from './auth/asset-lockdown.js';
+import { AuthSessionService } from './auth/auth-session.service.js';
+import { RequestAuthenticator } from './auth/request-auth.js';
 
 async function bootstrap(): Promise<void> {
   let app: NestFastifyApplication | undefined;
@@ -19,6 +21,7 @@ async function bootstrap(): Promise<void> {
       AppModule,
       new FastifyAdapter({
         multipart: true,
+        bodyLimit: 8192,
         routerOptions: {
           ignoreTrailingSlash: true,
         },
@@ -27,12 +30,14 @@ async function bootstrap(): Promise<void> {
     );
 
     app.enableShutdownHooks();
+    const authenticator = app.get(RequestAuthenticator);
+    registerAssetLockdown(app, (request) => authenticator.resolve(request));
 
     const config = app.get(ConfigService);
 
-    if (config.getOrThrow<string>('NODE_ENV') !== 'production') {
-      setupSwagger(app);
-    }
+    // Swagger is disabled by default during the M10 authorization transition.
+
+    await app.get(AuthSessionService).assertReady();
 
     await app.listen({
       port: config.getOrThrow<number>('PORT'),

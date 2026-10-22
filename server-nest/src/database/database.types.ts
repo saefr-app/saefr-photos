@@ -7,6 +7,28 @@ export interface AssetTable {
   created_at: Date;
 }
 
+export interface AppUserTable {
+  id: string;
+  username: string;
+  password_hash: string;
+  role: 'admin' | 'user';
+  status: 'active' | 'disabled';
+  password_change_required: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface AuthSessionTable {
+  id: string;
+  user_id: string;
+  token_hash: Buffer;
+  csrf_token: Buffer;
+  created_at: Date;
+  expires_at: Date;
+}
+
 export interface Database {
   asset: AssetTable;
+  app_user: AppUserTable;
+  auth_session: AuthSessionTable;
 }

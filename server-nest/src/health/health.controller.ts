@@ -11,9 +11,11 @@ import {
   type HealthResponse,
   type ReadinessResponse,
 } from './health.service.js';
+import { PublicRoute } from '../auth/request-auth.js';
 
 @ApiTags('health')
 @Controller('health')
+@PublicRoute()
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 

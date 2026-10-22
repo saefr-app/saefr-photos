@@ -3,8 +3,9 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER } from '@nestjs/core';
 import { resolve } from 'node:path';
 
-import { AssetsModule } from './assets/assets.module.js';
 import { HealthModule } from './health/health.module.js';
+import { AuthModule } from './auth/auth.module.js';
+import { UsersModule } from './users/users.module.js';
 import { SafeHttpExceptionFilter } from './errors/safe-http-exception.filter.js';
 import { validateRuntimeConfig } from './runtime-config.js';
 
@@ -20,7 +21,8 @@ import { validateRuntimeConfig } from './runtime-config.js';
       validate: validateRuntimeConfig,
     }),
     HealthModule,
-    AssetsModule,
+    AuthModule,
+    UsersModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: SafeHttpExceptionFilter }],
 })

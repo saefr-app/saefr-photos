@@ -18,7 +18,7 @@ import {
   vi,
 } from 'vitest';
 
-import { AppModule } from '../src/app.module.js';
+import { LegacyAssetsTestModule } from './helpers/legacy-assets-test.module.js';
 import { AssetsRepository } from '../src/assets/assets.repository.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { LocalStorageService } from '../src/storage/local-storage.service.js';
@@ -38,7 +38,7 @@ describe('Safe HTTP errors (e2e)', () => {
 
   beforeAll(async () => {
     const moduleFixture = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [LegacyAssetsTestModule],
     })
       .overrideProvider(DatabaseService)
       .useValue({ ping })
