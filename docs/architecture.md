@@ -1,6 +1,6 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** M9 foundation through `3679682` and M10 checkpoints through `c5cdc0559ac82856d3ad4ed930d58f6fabd1360b` on `feat/m10-auth-foundation`. All M10 phases are committed and pushed; the milestone-wide review found no confirmed blocking defect. No PR or `integration` merge has occurred. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** M9 foundation through `3679682`; M10 merged through [PR #2](https://github.com/saefr-app/saefr-photos/pull/2) into `integration` as `acf6ed44bb870fdae56e68c523ba660af6536897` on 2026-10-22. Post-merge local verification passed; no production deployment or development-database migration has occurred. **Implemented** and **planned** are deliberately separated.
 
 ## M10 authentication foundation and current privacy boundary
 
@@ -8,7 +8,7 @@ The production `AppModule` no longer imports `AssetsModule`. Before listening, F
 
 The backend now requires an exact `APP_ORIGIN`. Production requires HTTPS; development/test HTTP is limited to loopback. Browser login at `/api/v1/auth/login` issues a random opaque session credential in an HttpOnly, SameSite=Lax cookie (`__Host-saefr_session` with Secure/Path=/ in production). PostgreSQL stores only its SHA-256 hash. Session resolution checks current account status and expiry on every protected request. Login, `/api/v1/me`, password change, logout, logout-all and own-session list/revocation are implemented. Phase 10B.5 adds administrator-only ordinary-user creation, account listing and account disable. Creation and disable reverify the administrator password under a user-row lock; disable serializes concurrent administrator operations before revoking target sessions. Unsafe authenticated requests require exact Origin and a separate session CSRF token. A default-deny Nest guard protects non-public routes. The single-process login and password-work limits are bounded, with restart and multi-node limits documented in the phase reports.
 
-Startup checks the strict managed M10 schema and fails before listening if it is missing or incompatible. It never runs migrations. Swagger is disabled in the production composition by default. M10 authentication is implemented on the feature branch but is **not** a self-hostable multi-user photo release: M11 must supply owner mapping and authorization before media can be enabled. Phase 10B.6 expanded Origin, CSRF, restricted-session and asset-lockdown regressions; its actual results are in the [Phase 10B.6 report](development/milestone-10b6-report.md).
+Startup checks the strict managed M10 schema and fails before listening if it is missing or incompatible. It never runs migrations. Swagger is disabled in the production composition by default. M10 authentication is integrated and post-merge verified but is **not** a self-hostable multi-user photo release: the approved [M11 ownership design](decisions/0005-asset-ownership.md) requires owner-scoped authorization before media routes reopen; existing ownerless records remain quarantined pending a separately approved mapping. Phase 10B.6 expanded Origin, CSRF, restricted-session and asset-lockdown regressions; its actual results are in the [Phase 10B.6 report](development/milestone-10b6-report.md).
 
 ## Current system
 
