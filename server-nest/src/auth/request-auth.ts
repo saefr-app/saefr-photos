@@ -77,6 +77,12 @@ export function sessionCredential(
 
 @Injectable()
 export class RequestAuthenticator {
+  // Request-local snapshot only. No client header/property can populate it.
+  // The gate and guard still independently enforce their route/CSRF policies.
+  private readonly actors = new WeakMap<
+    FastifyRequest,
+    { credential: string; actor: AuthenticatedActor }
+  >();
   constructor(
     private readonly sessions: AuthSessionService,
     private readonly config: ConfigService,
@@ -84,7 +90,12 @@ export class RequestAuthenticator {
 
   async resolve(request: FastifyRequest): Promise<AuthenticatedActor | null> {
     const credential = sessionCredential(request, this.config);
-    return credential ? this.sessions.resolve(credential) : null;
+    if (!credential) return null;
+    const cached = this.actors.get(request);
+    if (cached?.credential === credential) return cached.actor;
+    const actor = await this.sessions.resolve(credential);
+    if (actor) this.actors.set(request, { credential, actor });
+    return actor;
   }
 }
 

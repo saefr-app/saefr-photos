@@ -732,8 +732,11 @@ describe('PostgreSQL migrations and legacy baselining', () => {
   it('rejects an M11 ledger entry with only M10 schema', async () => {
     await migrateM10Only();
     const history = await ledger();
+    const later = new Date(
+      Date.parse(history.at(-1)!.timestamp) + 1,
+    ).toISOString();
     await sql`insert into public.kysely_migration values
-      (${ASSET_OWNERSHIP_MIGRATION}, '2026-10-23T00:00:00.000Z')`.execute(db);
+      (${ASSET_OWNERSHIP_MIGRATION}, ${later})`.execute(db);
     await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M11');
     await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M11');
     expect((await ledger()).slice(0, 2)).toEqual(history);

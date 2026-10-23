@@ -37,9 +37,9 @@ Phases 10B.1–10B.6 were reviewed and committed on `feat/m10-auth-foundation` t
 
 ## Later alpha modules (ordering may adjust)
 
-### M11 — Asset ownership and authorization [11B COMMITTED; 11C IN PROGRESS]
+### M11 — Asset ownership and authorization [11B/11C COMMITTED; 11D AWAITING REVIEW]
 
-The approved Phase 11A architecture is in [ADR 0005](decisions/0005-asset-ownership.md) and the [M11 specification](development/milestone-11-spec.md). Phase 11B committed the versioned ownership schema and historical-state migration validation as `e0b2585`; its disposable PostgreSQL evidence is in the [11B report](development/milestone-11b-report.md). Phase 11C implements an owner-scoped internal asset core on `feat/m11-asset-ownership`; local regression checks passed, and independent review remains. No real database was migrated. Production asset routes remain locked; HTTP activation belongs to 11D. Legacy NULL-owned assets remain quarantined.
+The approved Phase 11A architecture is in [ADR 0005](decisions/0005-asset-ownership.md) and the [M11 specification](development/milestone-11-spec.md). Phase 11B committed the versioned ownership schema and historical-state migration validation as `e0b2585`; its disposable PostgreSQL evidence is in the [11B report](development/milestone-11b-report.md). Phase 11C was independently reviewed and committed as `a355b138`. Phase 11D mounts the scoped core behind early cookie/Origin/CSRF authorization, requires exact M11 readiness and adds real-socket ownership/transport/startup tests. Its changes remain uncommitted on `feat/m11-asset-ownership`, awaiting independent security review; see the [11D report](development/milestone-11d-report.md). No real database was migrated or development API publicly exposed. Legacy NULL-owned assets remain quarantined; optional 11E mapping is deferred. M11F milestone-wide verification, documentation synchronization and integration readiness remain separately authorized future work. No release or deployment readiness is claimed.
 
 1. Asset ownership and authorization across every read/write endpoint; data migration/backfill strategy for pre-existing ownerless rows.
 2. Asset lifecycle: deletion/trash/recovery, pagination and richer metadata.

@@ -256,7 +256,7 @@ export class MeController {
         expiresAt: actor.expiresAt.toISOString(),
       },
       csrfToken: actor.csrfToken.toString('base64url'),
-      assetsAvailable: false,
+      assetsAvailable: !actor.passwordChangeRequired,
     };
   }
 }

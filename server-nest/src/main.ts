@@ -1,15 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import {
-  FastifyAdapter,
-  type NestFastifyApplication,
-} from '@nestjs/platform-fastify';
+import { type NestFastifyApplication } from '@nestjs/platform-fastify';
 
 import { RuntimeConfigError } from './runtime-config.js';
 import { safeErrorCode } from './errors/safe-error-code.js';
-import { registerAssetLockdown } from './auth/asset-lockdown.js';
+import { registerAssetAccess } from './auth/asset-lockdown.js';
 import { AuthSessionService } from './auth/auth-session.service.js';
-import { RequestAuthenticator } from './auth/request-auth.js';
+import { createHttpAdapter } from './http-adapter.js';
 
 async function bootstrap(): Promise<void> {
   let app: NestFastifyApplication | undefined;
@@ -19,19 +16,12 @@ async function bootstrap(): Promise<void> {
 
     app = await NestFactory.create<NestFastifyApplication>(
       AppModule,
-      new FastifyAdapter({
-        multipart: true,
-        bodyLimit: 8192,
-        routerOptions: {
-          ignoreTrailingSlash: true,
-        },
-      }),
+      createHttpAdapter(),
       { abortOnError: false },
     );
 
     app.enableShutdownHooks();
-    const authenticator = app.get(RequestAuthenticator);
-    registerAssetLockdown(app, (request) => authenticator.resolve(request));
+    registerAssetAccess(app);
 
     const config = app.get(ConfigService);
 

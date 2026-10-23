@@ -1,14 +1,16 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** M9 foundation through `3679682`; M10 merged through [PR #2](https://github.com/saefr-app/saefr-photos/pull/2) into `integration` as `acf6ed44bb870fdae56e68c523ba660af6536897` on 2026-10-22. Phase 11B ownership schema was committed as `e0b2585`. Phase 11C owner-scoped core work is locally verified, uncommitted and awaiting independent review. No production deployment or development-database migration has occurred. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** M9 foundation through `3679682`; M10 merged through [PR #2](https://github.com/saefr-app/saefr-photos/pull/2) into `integration` as `acf6ed44bb870fdae56e68c523ba660af6536897` on 2026-10-22. Phase 11B ownership schema was committed as `e0b2585`. Phase 11C owner-scoped core was reviewed and committed as `a355b138`. Phase 11D secure HTTP exposure is implemented in the uncommitted feature-branch working tree, awaiting independent security review. No production deployment or development-database migration has occurred. **Implemented** and **planned** are deliberately separated.
 
-## M10 authentication foundation and current privacy boundary
+## Authentication and current asset privacy boundary
 
-The production `AppModule` no longer imports `AssetsModule`. Before listening, Fastify registers an `onRequest` asset-namespace boundary, so multipart parsing and asset storage code are never reached through the production API. Anonymous asset requests return 401; a valid browser session, including an administrator, receives a fixed 503. A failed session lookup also returns a sanitized 503. Existing asset code remains exercised through an isolated test module only. No legacy ownerless asset is assigned to a user.
+The production `AppModule` mounts the reviewed owner-scoped `AssetsModule`. Bootstrap installs `registerAssetAccess()` at Fastify's `onRequest` stage before listening: cookie-only authentication, unrestricted-account checks and exact Origin/session CSRF for unsafe asset-namespace methods run before content parsing. Invalid or absent credentials receive sanitized 401, restricted accounts 403, and authentication lookup failures 503. The default-deny Nest guard independently enforces route policy and attaches the typed actor; controllers still require it. A private request-keyed WeakMap reuses successful session resolution within that request, while credential parsing, unsupported-header rejection and guard policy still run. Future requests resolve current session state; upload commit retains 11C's final locked revalidation. Administrators have no media bypass. Legacy NULL-owned rows remain invisible and unassigned.
+
+Namespace detection uses the matched router pattern for actual handlers plus decoded static-path checks for unmatched namespace requests. The shared `createHttpAdapter()` sanitizes malformed-URL errors that happen before hooks. All recognized asset responses use `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`. Real-socket tests cover matched percent-encoded segments, trailing slashes, unknown unsafe paths, HEAD fallback and full-200 Range responses. Unsupported encoded separators/double encoding remain unavailable; no aliases were added. `/api/v1/me` reports `assetsAvailable:true` only for unrestricted authenticated users/admins, indicating route capability rather than ownership or deployment readiness.
 
 The backend now requires an exact `APP_ORIGIN`. Production requires HTTPS; development/test HTTP is limited to loopback. Browser login at `/api/v1/auth/login` issues a random opaque session credential in an HttpOnly, SameSite=Lax cookie (`__Host-saefr_session` with Secure/Path=/ in production). PostgreSQL stores only its SHA-256 hash. Session resolution checks current account status and expiry on every protected request. Login, `/api/v1/me`, password change, logout, logout-all and own-session list/revocation are implemented. Phase 10B.5 adds administrator-only ordinary-user creation, account listing and account disable. Creation and disable reverify the administrator password under a user-row lock; disable serializes concurrent administrator operations before revoking target sessions. Unsafe authenticated requests require exact Origin and a separate session CSRF token. A default-deny Nest guard protects non-public routes. The single-process login and password-work limits are bounded, with restart and multi-node limits documented in the phase reports.
 
-Startup checks the strict managed M10 schema and fails before listening if it is missing or incompatible. It never runs migrations. Swagger is disabled in the production composition by default. M10 authentication is integrated and post-merge verified but is **not** a self-hostable multi-user photo release: the approved [M11 ownership design](decisions/0005-asset-ownership.md) requires owner-scoped authorization before media routes reopen; existing ownerless records remain quarantined pending a separately approved mapping. Phase 10B.6 expanded Origin, CSRF, restricted-session and asset-lockdown regressions; its actual results are in the [Phase 10B.6 report](development/milestone-10b6-report.md).
+Startup requires the applied M8, M10 and M11 migration prefix and the exact current asset/authentication catalog through the existing strict migration-status validator. M10-only, partial M11 or tampered history fails before listening. It never runs migrations. Swagger is disabled in the production composition by default. M10 authentication is integrated and post-merge verified but is **not** a self-hostable multi-user photo release: the [M11 ownership design](decisions/0005-asset-ownership.md) is implemented through the uncommitted 11D route boundary, which still requires independent review; existing ownerless records remain quarantined pending a separately approved mapping. Phase 10B.6 expanded Origin, CSRF, restricted-session and asset-lockdown regressions; its actual results are in the [Phase 10B.6 report](development/milestone-10b6-report.md).
 
 ## Current system
 
@@ -25,7 +27,9 @@ Startup checks the strict managed M10 schema and fails before listening if it is
 
 ```mermaid
 flowchart TD
-  Client[Isolated asset component test] --> Controller[NestJS AssetsController]
+  Client[Browser session] --> Gate[Fastify onRequest: identity and Origin/CSRF]
+  Gate --> Guard[Nest default-deny guard]
+  Guard --> Controller[NestJS AssetsController]
   Controller --> Service[AssetsService]
   Service --> Repo[AssetsRepository / Kysely]
   Repo --> DB[(PostgreSQL: asset table)]
@@ -35,25 +39,25 @@ flowchart TD
   Storage --> Sharp[Sharp image processing]
 ```
 
-### Retained asset implementation (isolated component tests only)
+### Owner-scoped asset implementation
 
-The flow below is retained for M11 and test coverage; the production application blocks it before parsing.
+The flow below is mounted in the feature-branch application behind the early gate. Isolated component/storage tests are also retained. No development server or real database was used to activate it.
 
 #### Upload: `POST /api/v1/assets/upload`
 
-1. The controller accepts one multipart `file` part, starts its stream immediately, and enforces part and file-size limits.
+1. After early authentication/Origin/CSRF and the guard, the controller accepts one multipart `file` part, starts its stream immediately, and enforces part and file-size limits.
 2. Controller forwards filename, claimed MIME type and stream to `AssetsService.upload()`; it also verifies the multipart parser reached the request's end before storage publishes files.
 3. Service validates/sanitizes filename, creates a UUID and calls `LocalStorageService.saveImage()`.
 4. Storage streams to a private temporary original with a second 20 MiB limit. Sharp checks actual file format/dimensions and generates a temporary thumbnail.
-5. After full multipart validation, storage hard-links the temporary files to UUID-derived final names. Existing final files cannot be overwritten. The unmounted 11C core then locks the actor's user and session rows in a short transaction, rechecks active/unrestricted status and database wall-clock expiry, and inserts metadata with the actor's owner UUID.
-6. Normal stream, parsing, image, and filesystem failures remove temporary and newly published files where the filesystem permits. The 11C core attempts to remove only this upload's files after an acknowledged callback rollback; it retains files if COMMIT outcome is uncertain or acknowledged. Cross-filesystem/DB atomicity is **not guaranteed**; crash recovery and reconciliation remain planned.
+5. After full multipart validation, storage hard-links the temporary files to UUID-derived final names. Existing final files cannot be overwritten. The reviewed 11C core then locks the actor's user and session rows in a short transaction, rechecks active/unrestricted status and database wall-clock expiry, and inserts metadata with the actor's owner UUID.
+6. Normal stream, parsing, image, and filesystem failures remove temporary and newly published files where the filesystem permits. The 11C core attempts to remove only this upload's files after failure before transaction callback entry or an acknowledged callback rollback; it retains files if COMMIT outcome is uncertain or acknowledged. Cross-filesystem/DB atomicity is **not guaranteed**; crash recovery and reconciliation remain planned.
 7. Returns `201 Created` with public asset metadata (`storage_path` is never in the public response).
 
 #### Retrieval
 
-- In the isolated 11C composition, `GET /api/v1/assets/` (and without trailing slash) returns only actor-owned metadata, newest first.
+- `GET /api/v1/assets/` (and without trailing slash) returns only actor-owned metadata, newest first.
 - `GET /api/v1/assets/:assetId` uses an owner predicate and returns metadata or the same 404 for foreign, ownerless and missing rows.
-- `GET /api/v1/assets/:assetId/original` and `/thumbnail` require scoped metadata before any storage open. These routes remain unavailable through the production application.
+- `GET /api/v1/assets/:assetId/original` and `/thumbnail` require scoped metadata before any storage open. Foreign, NULL-owned and absent valid IDs have the same sanitized 404 before storage is opened. HEAD uses the same scope checks with no body; Range is ignored, preserving full 200 responses.
 - `GET /health`: process liveness response; `GET /health/ready`: performs database `SELECT 1` and returns 503 if unavailable.
 
 ## Current backend layout
@@ -62,7 +66,8 @@ The flow below is retained for M11 and test coverage; the production application
 server-nest/
   src/
     main.ts              # app bootstrap, asset boundary, schema readiness
-    app.module.ts        # Config, Health, Auth, Users; no production AssetsModule
+    app.module.ts        # Config, Health, Auth, Users, scoped AssetsModule
+    http-adapter.ts      # shared Fastify options and safe pre-hook URL errors
     runtime-config.ts    # validated API runtime settings and defaults
     errors/              # safe HTTP exception responses and log categories
     assets/              # HTTP controller, orchestration, Kysely repository, DTO
@@ -87,24 +92,24 @@ The maintainer's `psql \d+ public.asset` inspection confirmed UUID `id`, unbound
 
 The standalone migration CLI uses Kysely `Migrator`, version files and `public.kysely_migration`/`public.kysely_migration_lock`. Fresh installs create the verified schema. Explicitly opted-in legacy baselines validate and lock the existing table, then record the initial version without changing the table or rows. Incompatible schemas/history fail without automatic repair. A runner advisory lock serializes preflight/bootstrap; Kysely applies pending versions and ledger entries transactionally. Metadata bootstrap itself precedes that transaction and may remain after failure.
 
-The Phase 11B version adds nullable `owner_id` to `asset`, an owner FK, ordering index and an enforced but unvalidated non-NULL check. Migration history selects the frozen M8 inspector for pre-M11 assets or an exact M11 inspector after that version. Existing asset rows and paths remain unchanged, with NULL ownership. This schema is only in the feature branch and disposable test databases; the development database was not upgraded. The API still requires M10 readiness and keeps every production asset route locked.
+The Phase 11B version adds nullable `owner_id` to `asset`, an owner FK, ordering index and an enforced but unvalidated non-NULL check. Migration history selects the frozen M8 inspector for pre-M11 assets or an exact M11 inspector after that version. Existing asset rows and paths remain unchanged, with NULL ownership. This schema is only in the feature branch and disposable test databases; the development database was not upgraded. The 11D API requires M11 readiness before listening and enforces owner-scoped asset authorization.
 
 Migration commands require dedicated `MIGRATION_POSTGRES_*` settings and database confirmation, and never run during API startup. See [database-migrations.md](development/database-migrations.md). The application still exposes `created_at` as UTC ISO text and keeps storage paths internal.
 
 ## Known limitations / not yet implemented
 
-- Phase 11B adds an owner column and database constraints. The unmounted 11C core now has owner-scoped repository/service methods, pending independent review. Existing ownerless rows remain quarantined. **Do not publicly expose or re-enable** media endpoints before the later reviewed M11 route boundary.
+- Phases 11B/11C are reviewed checkpoints; 11D mounts protected routes in the feature branch and awaits independent review. Existing ownerless rows remain quarantined. Public exposure, deployment and any real-data migration remain separately gated. See the [11D report](development/milestone-11d-report.md).
 - No asset deletion/trash or cursor pagination.
-- HTTP tests mostly mock repository/storage; Phase 9B also runs upload HTTP cases against real storage in isolated temporary directories. The separate PostgreSQL 18 suite verifies the migrated schema, repository behavior, legacy baselining, repeat runs, concurrency and failure cases using a disposable database. Real development migrations and restoration from a real backup were not exercised.
+- Component HTTP tests mock repository/storage; the 11D production-composition matrix uses real localhost sockets, real sessions/PostgreSQL and temporary media. Only failure-injection cases replace storage reads or session lookup. Phase 9B also runs upload HTTP cases against real storage in isolated temporary directories. The separate PostgreSQL 18 suite verifies the migrated schema, repository behavior, legacy baselining, repeat runs, concurrency and failure cases using a disposable database. Real development migrations and restoration from a real backup were not exercised.
 - `size` remains a signed 32-bit INTEGER. No large-file or timestamp conversion was introduced. Historical development records were not inspected or changed by M8.
-- Cross-system upload durability and startup recovery are not complete. A process/host crash can strand temporary files, one published file, or files without metadata. The unmounted 11C core retains files when COMMIT outcome is uncertain, avoiding deliberate deletion of possibly committed media. Cleanup after an acknowledged rollback can fail if the filesystem is unavailable or permissions change. No broad automatic deletion is implemented.
+- Cross-system upload durability and startup recovery are not complete. A process/host crash can strand temporary files, one published file, or files without metadata. The reviewed 11C core retains files when COMMIT outcome is uncertain, avoiding deliberate deletion of possibly committed media. Cleanup after an acknowledged rollback can fail if the filesystem is unavailable or permissions change. No broad automatic deletion is implemented.
 - Focused filesystem write-failure injection remains to be added. Existing tests cover stream interruptions, invalid images, collisions, simulated database failures and a cleanup failure that preserves the original error.
 - Local filesystem safety assumes the configured storage root and its parent are controlled by the operator; it does not defend against a privileged process replacing directories concurrently. Isolated filesystem/NAS support and a full upload resource threat model remain future work.
 - No fully Dockerized backend or Redis/BullMQ worker yet; no mobile application or ML service integrated.
 - Swagger/OpenAPI remains in source for isolated tests but is disabled in the production composition during M10.
-- Explicit `HOST` values can bind the API beyond localhost; TLS/proxy and deployment controls are still required before public exposure. Startup validates configuration and the exact managed M10 schema, but does not create storage directories.
+- Explicit `HOST` values can bind the API beyond localhost; TLS/proxy and deployment controls are still required before public exposure. Startup validates configuration and the exact managed M11 schema, but does not create storage directories.
 - The app handles SIGTERM through Nest shutdown hooks and closes its HTTP listener and Kysely pool. The standalone runtime smoke checks safe configuration and database-startup failures; a real localhost listener and SIGTERM are checked against disposable PostgreSQL in the authentication integration suite. Neither proves behavior during a host crash, blocked I/O or a real production deployment. An error after streaming response headers have been sent cannot be turned into a fresh JSON error response.
-- Logs retain safe route/category diagnostics but do not yet have request correlation, durable collection or alerting. Framework errors outside Nest's request exception pipeline may use Fastify's own response handling; deployment-facing error behavior needs review with a secured production stack.
+- Logs retain safe route/category diagnostics but do not yet have request correlation, durable collection or alerting. Malformed URL errors before Nest hooks have fixed JSON responses. Deployment-facing proxy/TLS and other transport error behavior still need review with a secured production stack.
 
 ## Documentation rule
 
