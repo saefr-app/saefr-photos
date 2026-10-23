@@ -3,10 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import {
-  FastifyAdapter,
-  type NestFastifyApplication,
-} from '@nestjs/platform-fastify';
+import { type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { sql } from 'kysely';
 import {
   afterAll,
@@ -18,11 +15,11 @@ import {
   vi,
 } from 'vitest';
 
-import { registerAssetLockdown } from '../src/auth/asset-lockdown.js';
+import { registerAssetAccess } from '../src/auth/asset-lockdown.js';
 import { AttemptLimiter } from '../src/auth/attempt-limiter.js';
 import { AuthSessionService } from '../src/auth/auth-session.service.js';
 import { PasswordService } from '../src/auth/password.service.js';
-import { RequestAuthenticator } from '../src/auth/request-auth.js';
+import { createHttpAdapter } from '../src/http-adapter.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { migrateToLatest } from '../src/database/migrations/migration-runner.js';
 import { UsersService } from '../src/users/users.service.js';
@@ -83,16 +80,11 @@ describe('M10 administrator routes on disposable PostgreSQL and localhost HTTP',
     const fixture = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = fixture.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter({
-        multipart: true,
-        bodyLimit: 8192,
-        routerOptions: { ignoreTrailingSlash: true },
-      }),
-    );
-    registerAssetLockdown(app, (request) =>
-      app.get(RequestAuthenticator).resolve(request),
-    );
+    app =
+      fixture.createNestApplication<NestFastifyApplication>(
+        createHttpAdapter(),
+      );
+    registerAssetAccess(app);
     await app.get(AuthSessionService).assertReady();
     await app.init();
     await app.listen({ host: '127.0.0.1', port: 0 });
@@ -239,7 +231,7 @@ describe('M10 administrator routes on disposable PostgreSQL and localhost HTTP',
           headers: { Cookie: firstLogin.cookie },
         })
       ).status,
-    ).toBe(503);
+    ).toBe(403);
     expect(
       (
         await request('/api/v1/users', {
@@ -478,7 +470,7 @@ describe('M10 administrator routes on disposable PostgreSQL and localhost HTTP',
           headers: { Cookie: actor.cookie },
         })
       ).status,
-    ).toBe(503);
+    ).toBe(400);
   }, 20_000);
 
   it('sanitizes unknown targets, wrong passwords, invalid UUIDs and self-disable', async () => {

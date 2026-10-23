@@ -1,16 +1,16 @@
 import { Test } from '@nestjs/testing';
-import {
-  FastifyAdapter,
-  type NestFastifyApplication,
-} from '@nestjs/platform-fastify';
+import { type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { AppModule } from '../src/app.module.js';
 import { AssetsService } from '../src/assets/assets.service.js';
-import { registerAssetLockdown } from '../src/auth/asset-lockdown.js';
+import { registerAssetAccess } from '../src/auth/asset-lockdown.js';
+import { RequestAuthenticator } from '../src/auth/request-auth.js';
+import { createHttpAdapter } from '../src/http-adapter.js';
+import { assetActor } from './helpers/asset-auth.js';
 import { DatabaseService } from '../src/database/database.service.js';
 
-describe('production asset lockdown before login activation', () => {
+describe('production early asset authorization', () => {
   let app: NestFastifyApplication;
   const resolveActor = vi.fn().mockResolvedValue(null);
 
@@ -18,22 +18,24 @@ describe('production asset lockdown before login activation', () => {
     const fixture = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(DatabaseService)
       .useValue({ ping: vi.fn().mockResolvedValue(undefined) })
+      .overrideProvider(RequestAuthenticator)
+      .useValue({ resolve: resolveActor })
+      .overrideProvider(AssetsService)
+      .useValue({ findAll: vi.fn().mockResolvedValue([]) })
       .compile();
-    app = fixture.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter({
-        routerOptions: { ignoreTrailingSlash: true },
-        multipart: true,
-      }),
-    );
-    registerAssetLockdown(app, resolveActor);
+    app =
+      fixture.createNestApplication<NestFastifyApplication>(
+        createHttpAdapter(),
+      );
+    registerAssetAccess(app);
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
   });
 
   afterAll(async () => app.close());
 
-  it('does not mount the legacy asset service in AppModule', () => {
-    expect(() => app.get(AssetsService)).toThrow();
+  it('mounts the scoped asset service in AppModule', () => {
+    expect(app.get(AssetsService)).toBeDefined();
   });
 
   it.each([
@@ -70,38 +72,29 @@ describe('production asset lockdown before login activation', () => {
     },
   );
 
-  it('returns the same unavailable response for every authenticated asset operation', async () => {
-    const operations = [
-      { method: 'GET', url: '/api/v1/assets' },
-      { method: 'GET', url: '/api/v1/assets/id' },
-      { method: 'GET', url: '/api/v1/assets/id/original' },
-      { method: 'GET', url: '/api/v1/assets/id/thumbnail' },
-      { method: 'GET', url: '/api/v1/assets/unknown/nested' },
-      { method: 'GET', url: '/api/v1/assets/' },
-      { method: 'HEAD', url: '/api/v1/assets/id/original' },
-      {
+  it('permits unrestricted users/admins and rejects restricted accounts before parsing', async () => {
+    for (const role of ['user', 'admin'] as const) {
+      resolveActor.mockResolvedValue({ ...assetActor, role });
+      const list = await app.inject({ method: 'GET', url: '/api/v1/assets/' });
+      expect(list.statusCode).toBe(200);
+      expect(list.json()).toEqual([]);
+      resolveActor.mockResolvedValue({
+        ...assetActor,
+        role,
+        passwordChangeRequired: true,
+      });
+      const upload = await app.inject({
         method: 'POST',
         url: '/api/v1/assets/upload',
         headers: { 'content-type': 'multipart/form-data; boundary=bad' },
-        payload: 'incomplete multipart body',
-      },
-    ] as const;
-    for (const actor of ['user', 'admin']) {
-      resolveActor.mockResolvedValue({ userId: actor });
-      for (const operation of operations) {
-        const response = await app.inject(operation);
-        expect(response.statusCode).toBe(503);
-        expect(response.headers['content-range']).toBeUndefined();
-        expect(response.headers['content-disposition']).toBeUndefined();
-        expect(response.headers['cache-control']).toBe('no-store');
-        if (operation.method === 'HEAD') expect(response.body).toBe('');
-        else
-          expect(response.json()).toEqual({
-            statusCode: 503,
-            message: 'Asset access is unavailable',
-            error: 'Service Unavailable',
-          });
-      }
+        payload: 'incomplete',
+      });
+      expect(upload.statusCode).toBe(403);
+      expect(upload.json()).toEqual({
+        statusCode: 403,
+        message: 'Forbidden',
+        error: 'Forbidden',
+      });
     }
   });
 

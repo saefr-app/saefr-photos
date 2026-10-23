@@ -9,7 +9,11 @@ import { sql } from 'kysely';
 
 import { DatabaseService } from '../database/database.service.js';
 import { getMigrationStatus } from '../database/migrations/migration-runner.js';
-import { AUTHENTICATION_MIGRATION } from '../database/migrations/migration-provider.js';
+import {
+  INITIAL_ASSET_MIGRATION,
+  AUTHENTICATION_MIGRATION,
+  ASSET_OWNERSHIP_MIGRATION,
+} from '../database/migrations/migration-provider.js';
 import { PasswordService } from './password.service.js';
 
 export interface AuthenticatedActor {
@@ -50,12 +54,17 @@ export class AuthSessionService {
   async assertReady(): Promise<void> {
     const status = await getMigrationStatus(this.database.db);
     if (
-      !status.migrations.some(
-        (version) =>
-          version.name === AUTHENTICATION_MIGRATION && version.applied,
+      ![
+        INITIAL_ASSET_MIGRATION,
+        AUTHENTICATION_MIGRATION,
+        ASSET_OWNERSHIP_MIGRATION,
+      ].every((name) =>
+        status.migrations.some(
+          (version) => version.name === name && version.applied,
+        ),
       )
     )
-      throw new Error('Authentication schema is not ready');
+      throw new Error('Application schema is not ready');
   }
 
   async login(

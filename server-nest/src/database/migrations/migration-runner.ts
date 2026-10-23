@@ -7,6 +7,11 @@ import {
 } from './legacy-asset-schema.js';
 import { assertAuthAbsent, inspectAuthSchema } from './auth-schema.js';
 import {
+  assertOwnershipAbsent,
+  inspectOwnershipAsset,
+} from './asset-ownership-schema.js';
+import {
+  ASSET_OWNERSHIP_MIGRATION,
   AUTHENTICATION_MIGRATION,
   createMigrationProvider,
 } from './migration-provider.js';
@@ -50,7 +55,6 @@ async function inspectMigrationStatus<DB>(db: Kysely<DB>) {
     throw new MigrationSafetyError(
       'Schema public is missing. Review database provisioning; no schema was created.',
     );
-  const assetExists = await inspectLegacyAsset(db);
   const tables = await sql<{
     name: string;
     valid: boolean;
@@ -180,6 +184,19 @@ async function inspectMigrationStatus<DB>(db: Kysely<DB>) {
       'Incompatible migration history: unknown, duplicate, out-of-order or invalid applied migrations. Restore the matching migration files; do not edit the ledger.',
     );
   }
+  const ownsAssets = applied.some(
+    (migration) => migration.name === ASSET_OWNERSHIP_MIGRATION,
+  );
+  if (
+    applied.some((migration) => migration.name === AUTHENTICATION_MIGRATION)
+  ) {
+    await inspectAuthSchema(db);
+  } else {
+    await assertAuthAbsent(db);
+  }
+  const assetExists = ownsAssets
+    ? await inspectOwnershipAsset(db)
+    : await inspectLegacyAsset(db);
   if (!assetExists && applied.length) {
     throw new MigrationSafetyError(
       'Migration history exists but public.asset is missing. Refusing to recreate a previously migrated table.',
@@ -196,13 +213,7 @@ async function inspectMigrationStatus<DB>(db: Kysely<DB>) {
         'The name public.asset_pkey is already in use. No schema repair attempted.',
       );
   }
-  if (
-    applied.some((migration) => migration.name === AUTHENTICATION_MIGRATION)
-  ) {
-    await inspectAuthSchema(db);
-  } else {
-    await assertAuthAbsent(db);
-  }
+  if (!ownsAssets) await assertOwnershipAbsent(db);
   return {
     installation: applied.length ? 'managed' : assetExists ? 'legacy' : 'fresh',
     migrations: available.map((name, index) => ({

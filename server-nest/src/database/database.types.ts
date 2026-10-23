@@ -1,3 +1,5 @@
+import type { ColumnType } from 'kysely';
+
 export interface AssetTable {
   id: string;
   filename: string;
@@ -5,6 +7,7 @@ export interface AssetTable {
   size: number;
   storage_path: string;
   created_at: Date;
+  owner_id: ColumnType<string | null, string, string | null>;
 }
 
 export interface AppUserTable {

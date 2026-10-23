@@ -4,10 +4,7 @@ import { createServer } from 'node:net';
 
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
-import {
-  FastifyAdapter,
-  type NestFastifyApplication,
-} from '@nestjs/platform-fastify';
+import { type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { sql } from 'kysely';
 import {
   afterAll,
@@ -19,9 +16,9 @@ import {
   vi,
 } from 'vitest';
 
-import { registerAssetLockdown } from '../src/auth/asset-lockdown.js';
+import { registerAssetAccess } from '../src/auth/asset-lockdown.js';
 import { AuthSessionService } from '../src/auth/auth-session.service.js';
-import { RequestAuthenticator } from '../src/auth/request-auth.js';
+import { createHttpAdapter } from '../src/http-adapter.js';
 import { PasswordService } from '../src/auth/password.service.js';
 import { OperatorAccountsService } from '../src/users/operator-accounts.service.js';
 import { DatabaseService } from '../src/database/database.service.js';
@@ -83,16 +80,11 @@ describe('M10 browser authentication on disposable PostgreSQL and a real localho
     const fixture = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = fixture.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter({
-        multipart: true,
-        bodyLimit: 8192,
-        routerOptions: { ignoreTrailingSlash: true },
-      }),
-    );
-    registerAssetLockdown(app, (request) =>
-      app.get(RequestAuthenticator).resolve(request),
-    );
+    app =
+      fixture.createNestApplication<NestFastifyApplication>(
+        createHttpAdapter(),
+      );
+    registerAssetAccess(app);
     await app.get(AuthSessionService).assertReady();
     await app.init();
     await app.listen({ host: '127.0.0.1', port: 0 });
@@ -201,43 +193,35 @@ describe('M10 browser authentication on disposable PostgreSQL and a real localho
     expect(await me.json()).toMatchObject({
       id: userId,
       csrfToken: body.csrfToken,
-      assetsAvailable: false,
+      assetsAvailable: true,
     });
   });
 
-  it('keeps ownerless media unavailable to anonymous users and authenticated administrators', async () => {
+  it('authenticates asset access and rejects upload without Origin/CSRF', async () => {
     const unauthenticated = await request('/api/v1/assets/id/original', {
       headers: { Range: 'bytes=0-5' },
     });
     expect(unauthenticated.status).toBe(401);
     const { cookie } = await login();
-    for (const [path, init] of [
-      ['/api/v1/assets', { headers: { Cookie: cookie } }],
-      [
-        '/api/v1/assets/id/thumbnail',
-        { headers: { Cookie: cookie, Range: 'bytes=0-5' } },
-      ],
-      [
-        '/api/v1/assets/upload',
-        {
-          method: 'POST',
-          headers: {
-            Cookie: cookie,
-            'Content-Type': 'multipart/form-data; boundary=bad',
-          },
-          body: 'bad',
-        },
-      ],
-    ] as const) {
-      const response = await request(path, init);
-      expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({
-        statusCode: 503,
-        message: 'Asset access is unavailable',
-        error: 'Service Unavailable',
-      });
-      expect(response.headers.get('content-range')).toBeNull();
-    }
+    const list = await request('/api/v1/assets', {
+      headers: { Cookie: cookie },
+    });
+    expect(list.status).toBe(200);
+    expect(await list.json()).toEqual([]);
+    const invalidId = await request('/api/v1/assets/id/thumbnail', {
+      headers: { Cookie: cookie },
+    });
+    expect(invalidId.status).toBe(400);
+    const upload = await request('/api/v1/assets/upload', {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        'Content-Type': 'multipart/form-data; boundary=bad',
+      },
+      body: 'bad',
+    });
+    expect(upload.status).toBe(403);
+    expect(upload.headers.get('content-range')).toBeNull();
   });
 
   it('requires exact Origin, JSON login header and rejects bearer credentials', async () => {
@@ -682,7 +666,7 @@ describe('M10 browser authentication on disposable PostgreSQL and a real localho
     }
   });
 
-  it('starts the compiled API only with ready M10 schema and shuts down on SIGTERM', async () => {
+  it('starts the compiled API only with ready M11 schema and shuts down on SIGTERM', async () => {
     const reserved = createServer();
     await new Promise<void>((resolve) =>
       reserved.listen(0, '127.0.0.1', resolve),

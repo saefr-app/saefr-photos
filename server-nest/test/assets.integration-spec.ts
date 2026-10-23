@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { AssetsRepository } from '../src/assets/assets.repository.js';
 import { AssetsService } from '../src/assets/assets.service.js';
+import type { AuthenticatedActor } from '../src/auth/auth-session.service.js';
 import type { AssetTable } from '../src/database/database.types.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { migrateToLatest } from '../src/database/migrations/migration-runner.js';
@@ -18,11 +19,21 @@ const ids = {
   third: '00000000-0000-4000-8000-000000000003',
   missing: '00000000-0000-4000-8000-000000000099',
 };
+const ownerId = '00000000-0000-4000-8000-000000000100';
+const actor: AuthenticatedActor = {
+  userId: ownerId,
+  username: 'assetfixture',
+  role: 'user',
+  sessionId: '00000000-0000-4000-8000-000000000200',
+  expiresAt: new Date('2030-01-01T00:00:00Z'),
+  passwordChangeRequired: false,
+  csrfToken: Buffer.alloc(32),
+};
 
 function asset(
   id: string,
   createdAt = new Date('2026-10-16T12:00:00.000Z'),
-): AssetTable {
+): Omit<AssetTable, 'owner_id'> & { owner_id: string } {
   return {
     id,
     filename: `${id}.jpg`,
@@ -30,6 +41,7 @@ function asset(
     size: 1234,
     storage_path: `/isolated-test/originals/${id}.jpg`,
     created_at: createdAt,
+    owner_id: ownerId,
   };
 }
 
@@ -61,12 +73,23 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
     expect(identity.rows[0].version_number).toBeLessThan(190000);
 
     await migrateToLatest(database.db);
+    await sql`insert into public.app_user values
+      (${ownerId}::uuid, 'assetfixture', 'test-hash', 'user', 'active', false,
+       '2026-10-21T00:00:00Z', '2026-10-21T00:00:00Z')`.execute(database.db);
     repository = new AssetsRepository(database);
   });
 
   beforeEach(async () => {
     await sql`delete from asset`.execute(database.db);
   });
+
+  async function insertFixture(input: ReturnType<typeof asset>) {
+    return database.db
+      .insertInto('asset')
+      .values(input)
+      .returning(['id', 'filename', 'mime_type', 'size', 'created_at'])
+      .executeTakeFirstOrThrow();
+  }
 
   afterAll(async () => {
     await database?.onModuleDestroy();
@@ -105,12 +128,13 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
         data_type: 'timestamp with time zone',
         is_nullable: 'NO',
       },
+      { column_name: 'owner_id', data_type: 'uuid', is_nullable: 'YES' },
     ]);
   });
 
-  it('creates and reads metadata and internal storage path by UUID', async () => {
+  it('reads owned metadata and internal storage path by UUID', async () => {
     const input = asset(ids.first);
-    const created = await repository.create(input);
+    const created = await insertFixture(input);
     expect(created).toMatchObject({
       id: input.id,
       filename: input.filename,
@@ -119,8 +143,8 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
     });
     expect(created.created_at).toBeInstanceOf(Date);
     expect(created).not.toHaveProperty('storage_path');
-    expect(await repository.findById(input.id)).toEqual(created);
-    expect(await repository.findFileById(input.id)).toEqual({
+    expect(await repository.findById(input.id, ownerId)).toEqual(created);
+    expect(await repository.findFileById(input.id, ownerId)).toEqual({
       id: input.id,
       mime_type: input.mime_type,
       storage_path: input.storage_path,
@@ -128,18 +152,22 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
   });
 
   it('returns undefined for missing metadata and file records', async () => {
-    await expect(repository.findById(ids.missing)).resolves.toBeUndefined();
-    await expect(repository.findFileById(ids.missing)).resolves.toBeUndefined();
+    await expect(
+      repository.findById(ids.missing, ownerId),
+    ).resolves.toBeUndefined();
+    await expect(
+      repository.findFileById(ids.missing, ownerId),
+    ).resolves.toBeUndefined();
   });
 
   it('lists newest first and resolves equal timestamps by descending UUID', async () => {
     const older = asset(ids.first, new Date('2026-10-15T12:00:00.000Z'));
     const sameTime = new Date('2026-10-16T12:00:00.000Z');
-    await repository.create(older);
-    await repository.create(asset(ids.second, sameTime));
-    await repository.create(asset(ids.third, sameTime));
+    await insertFixture(older);
+    await insertFixture(asset(ids.second, sameTime));
+    await insertFixture(asset(ids.third, sameTime));
 
-    const records = await repository.findAll();
+    const records = await repository.findAll(ownerId);
     expect(records.map((record) => record.id)).toEqual([
       ids.third,
       ids.second,
@@ -150,17 +178,16 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
 
   it('round-trips offset timestamps and serializes public UTC metadata', async () => {
     const input = asset(ids.first);
-    await sql`insert into asset (id, filename, mime_type, size, storage_path, created_at)
+    await sql`insert into asset (id, filename, mime_type, size, storage_path, created_at, owner_id)
       values (${input.id}::uuid, ${input.filename}, ${input.mime_type},
-        ${input.size}, ${input.storage_path}, ${'2026-10-16 17:30:00+05:30'}::timestamptz)`.execute(
-      database.db,
-    );
-    const stored = await repository.findById(input.id);
+        ${input.size}, ${input.storage_path}, ${'2026-10-16 17:30:00+05:30'}::timestamptz,
+        ${ownerId}::uuid)`.execute(database.db);
+    const stored = await repository.findById(input.id, ownerId);
     expect(stored?.created_at).toBeInstanceOf(Date);
     expect(stored?.created_at.toISOString()).toBe('2026-10-16T12:00:00.000Z');
 
     const service = new AssetsService(repository, {} as LocalStorageService);
-    const response = await service.findById(input.id);
+    const response = await service.findById(actor, input.id);
     expect(response).toEqual({
       id: input.id,
       filename: input.filename,
@@ -174,12 +201,14 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
   it('enforces the legacy 32-bit integer size limit', async () => {
     const maximum = asset(ids.first);
     maximum.size = 2_147_483_647;
-    expect((await repository.create(maximum)).size).toBe(maximum.size);
+    expect((await insertFixture(maximum)).size).toBe(maximum.size);
 
     const tooLarge = asset(ids.second);
     tooLarge.size = 2_147_483_648;
-    await expect(repository.create(tooLarge)).rejects.toThrow(/out of range/i);
-    await expect(repository.findById(tooLarge.id)).resolves.toBeUndefined();
+    await expect(insertFixture(tooLarge)).rejects.toThrow(/out of range/i);
+    await expect(
+      repository.findById(tooLarge.id, ownerId),
+    ).resolves.toBeUndefined();
   });
 
   it('reports readiness from a real ping and 503 after its pool closes', async () => {

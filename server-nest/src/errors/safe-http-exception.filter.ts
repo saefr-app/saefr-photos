@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
+import { isAssetRequest } from '../auth/asset-lockdown.js';
 import { safeErrorCode } from './safe-error-code.js';
 
 const PUBLIC_MESSAGES: Readonly<Record<number, readonly string[]>> = {
@@ -123,6 +124,12 @@ export class SafeHttpExceptionFilter implements ExceptionFilter {
     reply.removeHeader('content-type');
     reply.removeHeader('content-length');
     reply.removeHeader('content-disposition');
+    reply.removeHeader('content-range');
+    reply.removeHeader('accept-ranges');
+    if (isAssetRequest(request)) {
+      reply.header('Cache-Control', 'no-store');
+      reply.header('X-Content-Type-Options', 'nosniff');
+    }
     if (
       request.url.startsWith('/api/v1/auth/') ||
       request.url.startsWith('/api/v1/me') ||

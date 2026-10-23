@@ -15,6 +15,8 @@ import sharp from 'sharp';
 
 import { LegacyAssetsTestModule } from './helpers/legacy-assets-test.module.js';
 import { AssetsRepository } from '../src/assets/assets.repository.js';
+import { RequestAuthenticator } from '../src/auth/request-auth.js';
+import { assetAuthenticator, assetHeaders } from './helpers/asset-auth.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { LocalStorageService } from '../src/storage/local-storage.service.js';
 import { MAX_UPLOAD_BYTES } from '../src/storage/image-limits.js';
@@ -36,19 +38,24 @@ function multipartBody(content: Buffer, mimeType = 'image/jpeg'): Buffer {
 describe('Image upload with isolated real storage (e2e)', () => {
   let root: string;
   let app: NestFastifyApplication;
-  let create: ReturnType<typeof vi.fn>;
+  let createForActor: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'saefr-upload-http-test-'));
-    create = vi.fn().mockImplementation(async (asset) => asset);
+    createForActor = vi.fn().mockImplementation(async (_actor, asset) => ({
+      status: 'committed',
+      asset,
+    }));
 
     const moduleFixture = await Test.createTestingModule({
       imports: [LegacyAssetsTestModule],
     })
       .overrideProvider(DatabaseService)
       .useValue({ ping: vi.fn().mockResolvedValue(undefined) })
+      .overrideProvider(RequestAuthenticator)
+      .useValue(assetAuthenticator)
       .overrideProvider(AssetsRepository)
-      .useValue({ create })
+      .useValue({ createForActor })
       .overrideProvider(LocalStorageService)
       .useValue(
         new LocalStorageService(new ConfigService({ STORAGE_ROOT: root })),
@@ -72,6 +79,7 @@ describe('Image upload with isolated real storage (e2e)', () => {
       method: 'POST',
       url: '/api/v1/assets/upload',
       headers: {
+        ...assetHeaders(true),
         'content-type':
           'multipart/form-data; boundary=saefr-storage-test-boundary',
       },
@@ -108,14 +116,14 @@ describe('Image upload with isolated real storage (e2e)', () => {
       (await sharp(join(root, 'thumbnails', `${body.id}.jpg`)).metadata())
         .format,
     ).toBe('jpeg');
-    expect(create).toHaveBeenCalledOnce();
+    expect(createForActor).toHaveBeenCalledOnce();
   });
 
   it('rejects invalid image bytes without publishing files or metadata', async () => {
     const response = await upload(Buffer.from('not a JPEG'));
 
     expect(response.statusCode).toBe(415);
-    expect(create).not.toHaveBeenCalled();
+    expect(createForActor).not.toHaveBeenCalled();
     await expectNoFiles();
   });
 
@@ -123,7 +131,7 @@ describe('Image upload with isolated real storage (e2e)', () => {
     const response = await upload(Buffer.from('<svg/>'), 'image/svg+xml');
 
     expect(response.statusCode).toBe(415);
-    expect(create).not.toHaveBeenCalled();
+    expect(createForActor).not.toHaveBeenCalled();
     expect(await readdir(root)).toEqual([]);
   });
 
@@ -131,7 +139,7 @@ describe('Image upload with isolated real storage (e2e)', () => {
     const response = await upload(Buffer.alloc(MAX_UPLOAD_BYTES + 1));
 
     expect(response.statusCode).toBe(413);
-    expect(create).not.toHaveBeenCalled();
+    expect(createForActor).not.toHaveBeenCalled();
     await expectNoFiles();
   }, 10000);
 
@@ -153,6 +161,7 @@ describe('Image upload with isolated real storage (e2e)', () => {
     const response = await fetch(`${origin}/api/v1/assets/upload`, {
       method: 'POST',
       headers: {
+        ...assetHeaders(true),
         'content-type':
           'multipart/form-data; boundary=saefr-storage-test-boundary',
       },
@@ -161,7 +170,7 @@ describe('Image upload with isolated real storage (e2e)', () => {
     });
 
     expect(response.status).toBe(400);
-    expect(create).not.toHaveBeenCalled();
+    expect(createForActor).not.toHaveBeenCalled();
     await expectNoFiles();
   }, 8000);
 
@@ -179,6 +188,11 @@ describe('Image upload with isolated real storage (e2e)', () => {
       socket.write(
         'POST /api/v1/assets/upload HTTP/1.1\r\n' +
           'Host: 127.0.0.1\r\n' +
+          'Cookie: saefr_session_dev=isolated-asset-session\r\n' +
+          'Origin: http://127.0.0.1:3000\r\n' +
+          'X-CSRF-Token: ' +
+          assetHeaders(true)['X-CSRF-Token'] +
+          '\r\n' +
           'Content-Type: multipart/form-data; boundary=saefr-storage-test-boundary\r\n' +
           'Content-Length: 1048576\r\n\r\n' +
           '--saefr-storage-test-boundary\r\n' +
@@ -204,7 +218,7 @@ describe('Image upload with isolated real storage (e2e)', () => {
       },
       { timeout: 3000 },
     );
-    expect(create).not.toHaveBeenCalled();
+    expect(createForActor).not.toHaveBeenCalled();
   }, 8000);
 
   it('compensates for a database insert failure without deleting other media', async () => {
@@ -220,12 +234,15 @@ describe('Image upload with isolated real storage (e2e)', () => {
       .jpeg()
       .toBuffer();
     await writeFile(sentinel, 'keep me');
-    create.mockRejectedValueOnce(new Error('Simulated database failure'));
+    createForActor.mockResolvedValueOnce({
+      status: 'rolled_back',
+      error: new Error('Simulated database failure'),
+    });
 
     const response = await upload(original);
 
     expect(response.statusCode).toBe(500);
-    expect(create).toHaveBeenCalledOnce();
+    expect(createForActor).toHaveBeenCalledOnce();
     await expectNoFiles();
     expect(await readFile(sentinel, 'utf8')).toBe('keep me');
   });

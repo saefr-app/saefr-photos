@@ -37,7 +37,11 @@ Phases 10B.1–10B.6 were reviewed and committed on `feat/m10-auth-foundation` t
 
 ## Later alpha modules (ordering may adjust)
 
-1. Asset ownership and authorization across every read/write endpoint; data migration/backfill strategy for pre-existing ownerless rows.
+### M11 — Asset ownership and authorization [11B, 11C, 11D, 11F COMMITTED; PR AWAITING AUTHORIZATION]
+
+The approved Phase 11A architecture is in [ADR 0005](decisions/0005-asset-ownership.md) and the [M11 specification](development/milestone-11-spec.md). Phase 11B committed the versioned ownership schema and historical-state migration validation as `e0b2585`; its disposable PostgreSQL evidence is in the [11B report](development/milestone-11b-report.md). Phase 11C was independently reviewed and committed as `a355b138`. Phase 11D mounts the scoped core behind early cookie/Origin/CSRF authorization, requires exact M11 readiness and adds real-socket ownership/transport/startup tests. It passed final independent security review and was committed as `4aa46ed` on `feat/m11-asset-ownership`; see the [11D report](development/milestone-11d-report.md). No real database was migrated or development API publicly exposed. Legacy NULL-owned assets remain quarantined; optional 11E mapping is deferred. Phase 11F completed fresh milestone-wide regression verification and documentation synchronization, passed independent GPT-6 Astra Extra High security review with a PASS verdict, and was committed as `04674f0`. The complete M11 feature branch is ready for a separately authorized PR into `integration`; no M11 PR or merge has occurred. See the [11F report](development/milestone-11f-report.md). Real-data migration and deployment remain unapproved; no release readiness is claimed.
+
+1. Provenance-based legacy ownership mapping/backfill remains a separate decision; M11 owner-scoped reads and writes are implemented on the feature branch.
 2. Asset lifecycle: deletion/trash/recovery, pagination and richer metadata.
 3. Dockerized backend/API + PostgreSQL with persistent mounts, migration lifecycle, health checks and fresh-install guide.
 4. Redis + BullMQ worker for robust background processing, retries and failed-job visibility. Do not treat BullMQ as a separate container; it is a library running in backend/worker processes.

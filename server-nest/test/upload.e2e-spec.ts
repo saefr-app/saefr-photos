@@ -15,6 +15,8 @@ import {
 
 import { LegacyAssetsTestModule } from './helpers/legacy-assets-test.module.js';
 import { AssetsRepository } from '../src/assets/assets.repository.js';
+import { RequestAuthenticator } from '../src/auth/request-auth.js';
+import { assetAuthenticator, assetHeaders } from './helpers/asset-auth.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { LocalStorageService } from '../src/storage/local-storage.service.js';
 import { MAX_UPLOAD_BYTES } from '../src/storage/image-limits.js';
@@ -66,7 +68,10 @@ describe('Image upload API (e2e)', () => {
       },
     );
 
-  const create = vi.fn().mockImplementation(async (asset) => asset);
+  const createForActor = vi.fn().mockImplementation(async (_actor, asset) => ({
+    status: 'committed',
+    asset,
+  }));
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -80,9 +85,11 @@ describe('Image upload API (e2e)', () => {
       .useValue({
         ping: vi.fn().mockResolvedValue(undefined),
       })
+      .overrideProvider(RequestAuthenticator)
+      .useValue(assetAuthenticator)
       .overrideProvider(AssetsRepository)
       .useValue({
-        create,
+        createForActor,
       })
       .overrideProvider(LocalStorageService)
       .useValue({
@@ -115,6 +122,7 @@ describe('Image upload API (e2e)', () => {
       method: 'POST',
       url: '/api/v1/assets/upload',
       headers: {
+        ...assetHeaders(true),
         'content-type': 'multipart/form-data; boundary=saefr-test-boundary',
       },
       payload: multipartBody('file', 'holiday.jpg', 'image/jpeg', content),
@@ -130,7 +138,7 @@ describe('Image upload API (e2e)', () => {
     expect(response.json()).toHaveProperty('id');
     expect(response.json()).not.toHaveProperty('storage_path');
     expect(saveImage).toHaveBeenCalledOnce();
-    expect(create).toHaveBeenCalledOnce();
+    expect(createForActor).toHaveBeenCalledOnce();
   });
 
   it('rejects an unexpected file field', async () => {
@@ -138,6 +146,7 @@ describe('Image upload API (e2e)', () => {
       method: 'POST',
       url: '/api/v1/assets/upload',
       headers: {
+        ...assetHeaders(true),
         'content-type': 'multipart/form-data; boundary=saefr-test-boundary',
       },
       payload: multipartBody(
@@ -156,6 +165,7 @@ describe('Image upload API (e2e)', () => {
       method: 'POST',
       url: '/api/v1/assets/upload',
       headers: {
+        ...assetHeaders(true),
         'content-type': 'multipart/form-data; boundary=saefr-test-boundary',
       },
       payload: multipartBody(
@@ -167,7 +177,7 @@ describe('Image upload API (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(413);
-    expect(create).not.toHaveBeenCalled();
+    expect(createForActor).not.toHaveBeenCalled();
   });
 
   it('rejects a multipart request without a boundary', async () => {
@@ -175,13 +185,14 @@ describe('Image upload API (e2e)', () => {
       method: 'POST',
       url: '/api/v1/assets/upload',
       headers: {
+        ...assetHeaders(true),
         'content-type': 'multipart/form-data',
       },
       payload: Buffer.from('incomplete form'),
     });
 
     expect(response.statusCode).toBe(400);
-    expect(create).not.toHaveBeenCalled();
+    expect(createForActor).not.toHaveBeenCalled();
   });
 
   it('rejects an extra multipart part after the image', async () => {
@@ -204,12 +215,13 @@ describe('Image upload API (e2e)', () => {
       method: 'POST',
       url: '/api/v1/assets/upload',
       headers: {
+        ...assetHeaders(true),
         'content-type': 'multipart/form-data; boundary=saefr-test-boundary',
       },
       payload: extra,
     });
 
     expect(response.statusCode).toBe(400);
-    expect(create).not.toHaveBeenCalled();
+    expect(createForActor).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,17 @@
 # Database migrations
 
+## M11 ownership foundation (Phase 11B; committed on the feature branch)
+
+The new version `202610220001_asset_ownership` adds nullable UUID `public.asset.owner_id` without a default. It adds a validated, non-deferrable foreign key to `public.app_user(id)` with `ON DELETE RESTRICT` and `ON UPDATE NO ACTION`, a B-tree index on `(owner_id, created_at DESC, id DESC)`, and an enforced `CHECK (owner_id IS NOT NULL) NOT VALID`. Existing rows remain NULL-owned; the check rejects new NULL inserts and updates to old NULL-owned rows until ownership is supplied. It is intentionally unvalidated even on fresh installations.
+
+The runner validates Kysely metadata and the ordered migration ledger before choosing an asset inspector. Before M11 is applied, it uses the frozen M8 asset contract and rejects premature ownership objects. After M11, it uses the exact ownership catalog contract and rejects missing, changed or extra columns, constraints, indexes, triggers, rules, row security and relation substitutions. M8 and M10 migration files and historical inspectors are unchanged. Status remains read-only, and API startup never applies a version. The reviewed M11D feature-branch application mounts owner-scoped asset routes behind an early authentication gate and requires exact M11 readiness before listening. This is not deployment approval.
+
+Fresh, M8-managed, M10-managed and explicitly baselined compatible legacy databases are supported by the disposable tests. This source change **does not authorize** a real database upgrade. Old application binaries have a strict validator that rejects the M11 schema; use a maintenance window and a separately reviewed backup, recovery and isolated rehearsal plan before seeking approval for any real migration. Historical NULL rows remain quarantined and must not be assigned by inference.
+
+For recovery planning, `NOT VALID` exempts existing NULL-owned rows from the initial scan, but the enforced check rejects subsequent NULL inserts and updates. Restoring historical NULL-owned rows into an already-M11 schema can therefore fail; an isolated restore may need to load the legacy data before installing the M11 check (for example, restore the pre-M11 state, then apply the reviewed migration). The restore order and matching media backup need a separate rehearsal and approval. No real-data restore was rehearsed in Phase 11B.
+
+The following M10 and M8 sections retain their original historical design and verification context. Their present-tense descriptions of the then-current version count and asset validator refer to those earlier phases.
+
 ## M10 authentication foundation (Phase 10B.2)
 
 M10 adds the immutable version `202610210001_authentication_foundation` after the M8 asset version. It creates only `public.app_user` and `public.auth_session`, with required UUIDs, timestamps, canonical usernames, role/status checks, a restricted user foreign key, 32-byte session/CSRF checks, expiry ordering, and the named unique/query indexes specified in the [approved M10 specification](milestone-10-spec.md). It does not alter `public.asset`, assign owners, create accounts, activate login, or touch media files.
