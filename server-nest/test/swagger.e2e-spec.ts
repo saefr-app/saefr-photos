@@ -7,7 +7,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { LegacyAssetsTestModule } from './helpers/legacy-assets-test.module.js';
 import { DatabaseService } from '../src/database/database.service.js';
+import { RequestAuthenticator } from '../src/auth/request-auth.js';
 import { setupSwagger } from '../src/openapi/swagger.js';
+import { assetAuthenticator, assetHeaders } from './helpers/asset-auth.js';
 
 describe('Swagger documentation (e2e)', () => {
   let app: NestFastifyApplication;
@@ -16,6 +18,8 @@ describe('Swagger documentation (e2e)', () => {
     const moduleFixture = await Test.createTestingModule({
       imports: [LegacyAssetsTestModule],
     })
+      .overrideProvider(RequestAuthenticator)
+      .useValue(assetAuthenticator)
       .overrideProvider(DatabaseService)
       .useValue({
         ping: vi.fn().mockResolvedValue(undefined),
@@ -44,6 +48,7 @@ describe('Swagger documentation (e2e)', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/docs-json',
+      headers: assetHeaders(),
     });
 
     expect(response.statusCode).toBe(200);
@@ -82,6 +87,7 @@ describe('Swagger documentation (e2e)', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/docs-json',
+      headers: assetHeaders(),
     });
 
     expect(response.json()).toMatchObject({

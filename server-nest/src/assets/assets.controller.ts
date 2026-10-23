@@ -13,6 +13,8 @@ import {
   Post,
   Req,
   StreamableFile,
+  UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiBody,
@@ -26,11 +28,19 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { MultipartFile } from '@fastify/multipart';
-import type { FastifyRequest } from 'fastify';
 
 import { AssetsService, type AssetContent } from './assets.service.js';
 import { AssetResponseDto } from './dto/asset-response.dto.js';
 import { MAX_UPLOAD_BYTES } from '../storage/image-limits.js';
+import type { ActorRequest } from '../auth/request-auth.js';
+import type { AuthenticatedActor } from '../auth/auth-session.service.js';
+
+function requireAssetActor(request: ActorRequest): AuthenticatedActor {
+  const actor = request.authActor;
+  if (!actor) throw new UnauthorizedException('Unauthorized');
+  if (actor.passwordChangeRequired) throw new ForbiddenException('Forbidden');
+  return actor;
+}
 
 function uploadError(error: unknown): unknown {
   if (error instanceof HttpException) return error;
@@ -78,14 +88,14 @@ export class AssetsController {
 
   @Get()
   @ApiOperation({
-    summary: 'List all assets',
+    summary: 'List owned assets',
   })
   @ApiOkResponse({
     type: AssetResponseDto,
     isArray: true,
   })
-  findAll(): Promise<AssetResponseDto[]> {
-    return this.assetsService.findAll();
+  findAll(@Req() request: ActorRequest): Promise<AssetResponseDto[]> {
+    return this.assetsService.findAll(requireAssetActor(request));
   }
 
   @Post('upload')
@@ -126,7 +136,8 @@ export class AssetsController {
     status: 415,
     description: 'Unsupported or invalid image.',
   })
-  async upload(@Req() request: FastifyRequest): Promise<AssetResponseDto> {
+  async upload(@Req() request: ActorRequest): Promise<AssetResponseDto> {
+    const actor = requireAssetActor(request);
     if (!request.isMultipart()) {
       throw new BadRequestException('Image file is required');
     }
@@ -161,7 +172,7 @@ export class AssetsController {
       void forwarding.catch(() => undefined);
 
       try {
-        return await this.assetsService.upload({
+        return await this.assetsService.upload(actor, {
           filename: file.filename,
           mimeType: file.mimetype,
           stream: uploadStream,
@@ -211,10 +222,11 @@ export class AssetsController {
     description: 'Asset not found.',
   })
   findById(
+    @Req() request: ActorRequest,
     @Param('assetId', new ParseUUIDPipe())
     assetId: string,
   ): Promise<AssetResponseDto> {
-    return this.assetsService.findById(assetId);
+    return this.assetsService.findById(requireAssetActor(request), assetId);
   }
 
   @Get(':assetId/original')
@@ -240,10 +252,14 @@ export class AssetsController {
   @Header('Cache-Control', 'no-store')
   @Header('X-Content-Type-Options', 'nosniff')
   async getOriginal(
+    @Req() request: ActorRequest,
     @Param('assetId', new ParseUUIDPipe())
     assetId: string,
   ): Promise<StreamableFile> {
-    const file = await this.assetsService.getOriginal(assetId);
+    const file = await this.assetsService.getOriginal(
+      requireAssetActor(request),
+      assetId,
+    );
 
     return this.toStreamableFile(file);
   }
@@ -271,10 +287,14 @@ export class AssetsController {
   @Header('Cache-Control', 'no-store')
   @Header('X-Content-Type-Options', 'nosniff')
   async getThumbnail(
+    @Req() request: ActorRequest,
     @Param('assetId', new ParseUUIDPipe())
     assetId: string,
   ): Promise<StreamableFile> {
-    const file = await this.assetsService.getThumbnail(assetId);
+    const file = await this.assetsService.getThumbnail(
+      requireAssetActor(request),
+      assetId,
+    );
 
     return this.toStreamableFile(file);
   }

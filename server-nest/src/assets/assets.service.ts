@@ -7,6 +7,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 
 import {
@@ -21,6 +22,7 @@ import {
   type StoredFile,
 } from '../storage/local-storage.service.js';
 import { safeErrorCode } from '../errors/safe-error-code.js';
+import type { AuthenticatedActor } from '../auth/auth-session.service.js';
 
 export interface AssetContent extends StoredFile {
   contentType: string;
@@ -42,7 +44,10 @@ export class AssetsService {
     private readonly storage: LocalStorageService,
   ) {}
 
-  async upload(upload: ImageUpload): Promise<AssetResponseDto> {
+  async upload(
+    actor: AuthenticatedActor,
+    upload: ImageUpload,
+  ): Promise<AssetResponseDto> {
     const filename = basename(upload.filename.replaceAll('\\', '/')).trim();
 
     if (
@@ -66,18 +71,16 @@ export class AssetsService {
       upload.verifyComplete,
     );
 
-    let asset: AssetRecord;
+    const result = await this.assetsRepository.createForActor(actor, {
+      id: assetId,
+      filename,
+      mime_type: stored.mimeType,
+      size: stored.size,
+      storage_path: stored.storagePath,
+      created_at: new Date(),
+    });
 
-    try {
-      asset = await this.assetsRepository.create({
-        id: assetId,
-        filename,
-        mime_type: stored.mimeType,
-        size: stored.size,
-        storage_path: stored.storagePath,
-        created_at: new Date(),
-      });
-    } catch (error: unknown) {
+    if (result.status === 'not_started' || result.status === 'rolled_back') {
       try {
         await this.storage.deleteImage(assetId, stored.mimeType);
       } catch (cleanupError: unknown) {
@@ -86,20 +89,39 @@ export class AssetsService {
         );
       }
 
-      throw error;
+      if (result.status === 'not_started') {
+        this.logger.error(
+          `Asset upload transaction did not start for ${assetId}; ${safeErrorCode(result.error)}`,
+        );
+        throw new ServiceUnavailableException('Upload unavailable', {
+          cause: result.error,
+        });
+      }
+
+      throw result.error;
     }
 
-    return this.toResponse(asset);
+    if (result.status === 'uncertain') {
+      this.logger.error(
+        `Asset upload commit outcome unknown for ${assetId}; ${safeErrorCode(result.error)}`,
+      );
+      throw new ServiceUnavailableException('Upload unavailable');
+    }
+
+    return this.toResponse(result.asset);
   }
 
-  async findAll(): Promise<AssetResponseDto[]> {
-    const assets = await this.assetsRepository.findAll();
+  async findAll(actor: AuthenticatedActor): Promise<AssetResponseDto[]> {
+    const assets = await this.assetsRepository.findAll(actor.userId);
 
     return assets.map((asset) => this.toResponse(asset));
   }
 
-  async findById(assetId: string): Promise<AssetResponseDto> {
-    const asset = await this.assetsRepository.findById(assetId);
+  async findById(
+    actor: AuthenticatedActor,
+    assetId: string,
+  ): Promise<AssetResponseDto> {
+    const asset = await this.assetsRepository.findById(assetId, actor.userId);
 
     if (!asset) {
       throw new NotFoundException('Asset not found');
@@ -108,8 +130,11 @@ export class AssetsService {
     return this.toResponse(asset);
   }
 
-  async getOriginal(assetId: string): Promise<AssetContent> {
-    const asset = await this.getFileRecord(assetId);
+  async getOriginal(
+    actor: AuthenticatedActor,
+    assetId: string,
+  ): Promise<AssetContent> {
+    const asset = await this.getFileRecord(actor, assetId);
 
     const file = await this.storage.openOriginal(
       asset.id,
@@ -123,8 +148,11 @@ export class AssetsService {
     };
   }
 
-  async getThumbnail(assetId: string): Promise<AssetContent> {
-    const asset = await this.getFileRecord(assetId);
+  async getThumbnail(
+    actor: AuthenticatedActor,
+    assetId: string,
+  ): Promise<AssetContent> {
+    const asset = await this.getFileRecord(actor, assetId);
 
     const file = await this.storage.openThumbnail(asset.id);
 
@@ -134,8 +162,14 @@ export class AssetsService {
     };
   }
 
-  private async getFileRecord(assetId: string): Promise<AssetFileRecord> {
-    const asset = await this.assetsRepository.findFileById(assetId);
+  private async getFileRecord(
+    actor: AuthenticatedActor,
+    assetId: string,
+  ): Promise<AssetFileRecord> {
+    const asset = await this.assetsRepository.findFileById(
+      assetId,
+      actor.userId,
+    );
 
     if (!asset) {
       throw new NotFoundException('Asset not found');

@@ -20,6 +20,8 @@ import {
 
 import { LegacyAssetsTestModule } from './helpers/legacy-assets-test.module.js';
 import { AssetsRepository } from '../src/assets/assets.repository.js';
+import { RequestAuthenticator } from '../src/auth/request-auth.js';
+import { assetAuthenticator, assetHeaders } from './helpers/asset-auth.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { LocalStorageService } from '../src/storage/local-storage.service.js';
 
@@ -42,6 +44,8 @@ describe('Safe HTTP errors (e2e)', () => {
     })
       .overrideProvider(DatabaseService)
       .useValue({ ping })
+      .overrideProvider(RequestAuthenticator)
+      .useValue(assetAuthenticator)
       .overrideProvider(AssetsRepository)
       .useValue({ findAll, findFileById })
       .overrideProvider(LocalStorageService)
@@ -77,7 +81,11 @@ describe('Safe HTTP errors (e2e)', () => {
       Object.assign(new Error(secret), { code: '28P01' }),
     );
 
-    const response = await app.inject({ method: 'GET', url: '/api/v1/assets' });
+    const response = await app.inject({
+      headers: assetHeaders(),
+      method: 'GET',
+      url: '/api/v1/assets',
+    });
 
     expect(response.statusCode).toBe(500);
     expect(response.json()).toEqual({
@@ -103,6 +111,7 @@ describe('Safe HTTP errors (e2e)', () => {
     );
 
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: `/api/v1/assets/${assetId}/original`,
     });
@@ -132,6 +141,7 @@ describe('Safe HTTP errors (e2e)', () => {
     });
 
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: `/api/v1/assets/${assetId}/original`,
     });
@@ -181,7 +191,9 @@ describe('Safe HTTP errors (e2e)', () => {
     try {
       socket.write(
         `GET /api/v1/assets/${assetId}/original HTTP/1.1\r\n` +
-          'Host: 127.0.0.1\r\nConnection: close\r\n\r\n',
+          'Host: 127.0.0.1\r\n' +
+          'Cookie: saefr_session_dev=isolated-asset-session\r\n' +
+          'Connection: close\r\n\r\n',
       );
       stream.write('first');
 
@@ -223,6 +235,7 @@ describe('Safe HTTP errors (e2e)', () => {
       }
 
       const response = await app.inject({
+        headers: assetHeaders(),
         method: 'GET',
         url: `/api/v1/assets/${assetId}/${kind}`,
       });
@@ -237,7 +250,11 @@ describe('Safe HTTP errors (e2e)', () => {
   it('sanitizes an arbitrary HTTP exception message', async () => {
     findAll.mockRejectedValueOnce(new HttpException(secret, 400));
 
-    const response = await app.inject({ method: 'GET', url: '/api/v1/assets' });
+    const response = await app.inject({
+      headers: assetHeaders(),
+      method: 'GET',
+      url: '/api/v1/assets',
+    });
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({
@@ -251,7 +268,11 @@ describe('Safe HTTP errors (e2e)', () => {
   it('sanitizes a server-side HTTP exception message', async () => {
     findAll.mockRejectedValueOnce(new HttpException(secret, 500));
 
-    const response = await app.inject({ method: 'GET', url: '/api/v1/assets' });
+    const response = await app.inject({
+      headers: assetHeaders(),
+      method: 'GET',
+      url: '/api/v1/assets',
+    });
 
     expect(response.statusCode).toBe(500);
     expect(response.body).not.toContain(secret);
@@ -269,7 +290,11 @@ describe('Safe HTTP errors (e2e)', () => {
       Object.assign(new Error(secret), { code: 'ECONNREFUSED' }),
     );
 
-    const response = await app.inject({ method: 'GET', url: '/health/ready' });
+    const response = await app.inject({
+      headers: assetHeaders(),
+      method: 'GET',
+      url: '/health/ready',
+    });
 
     expect(response.statusCode).toBe(503);
     expect(response.json()).toMatchObject({
@@ -284,6 +309,7 @@ describe('Safe HTTP errors (e2e)', () => {
 
   it('does not reflect an unknown request path', async () => {
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: `/private/${encodeURIComponent(secret)}`,
     });

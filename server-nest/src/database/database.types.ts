@@ -7,8 +7,7 @@ export interface AssetTable {
   size: number;
   storage_path: string;
   created_at: Date;
-  // Transitional type while the retained, unmounted asset service is updated in 11C.
-  owner_id: ColumnType<string | null, string | null | undefined, string | null>;
+  owner_id: ColumnType<string | null, string, string | null>;
 }
 
 export interface AppUserTable {

@@ -1,6 +1,6 @@
 # Saefr Photos — Backend Architecture (as implemented)
 
-**Verified reference:** M9 foundation through `3679682`; M10 merged through [PR #2](https://github.com/saefr-app/saefr-photos/pull/2) into `integration` as `acf6ed44bb870fdae56e68c523ba660af6536897` on 2026-10-22. Phase 11B ownership schema is implemented on an uncommitted feature branch and awaiting review. No production deployment or development-database migration has occurred. **Implemented** and **planned** are deliberately separated.
+**Verified reference:** M9 foundation through `3679682`; M10 merged through [PR #2](https://github.com/saefr-app/saefr-photos/pull/2) into `integration` as `acf6ed44bb870fdae56e68c523ba660af6536897` on 2026-10-22. Phase 11B ownership schema was committed as `e0b2585`. Phase 11C owner-scoped core work is locally verified, uncommitted and awaiting independent review. No production deployment or development-database migration has occurred. **Implemented** and **planned** are deliberately separated.
 
 ## M10 authentication foundation and current privacy boundary
 
@@ -45,16 +45,15 @@ The flow below is retained for M11 and test coverage; the production application
 2. Controller forwards filename, claimed MIME type and stream to `AssetsService.upload()`; it also verifies the multipart parser reached the request's end before storage publishes files.
 3. Service validates/sanitizes filename, creates a UUID and calls `LocalStorageService.saveImage()`.
 4. Storage streams to a private temporary original with a second 20 MiB limit. Sharp checks actual file format/dimensions and generates a temporary thumbnail.
-5. After full multipart validation, storage hard-links the temporary files to UUID-derived final names. Existing final files cannot be overwritten; the service then inserts metadata through Kysely.
-6. Normal stream, parsing, image, and filesystem failures remove temporary and newly published files where the filesystem permits. If DB insertion fails, the service **attempts** to remove its new files. Cross-filesystem/DB atomicity is **not guaranteed**; crash recovery and reconciliation remain planned.
+5. After full multipart validation, storage hard-links the temporary files to UUID-derived final names. Existing final files cannot be overwritten. The unmounted 11C core then locks the actor's user and session rows in a short transaction, rechecks active/unrestricted status and database wall-clock expiry, and inserts metadata with the actor's owner UUID.
+6. Normal stream, parsing, image, and filesystem failures remove temporary and newly published files where the filesystem permits. The 11C core attempts to remove only this upload's files after an acknowledged callback rollback; it retains files if COMMIT outcome is uncertain or acknowledged. Cross-filesystem/DB atomicity is **not guaranteed**; crash recovery and reconciliation remain planned.
 7. Returns `201 Created` with public asset metadata (`storage_path` is never in the public response).
 
 #### Retrieval
 
-- `GET /api/v1/assets/` (and without trailing slash): returns unpaginated metadata newest first.
-- `GET /api/v1/assets/:assetId`: validates UUID, returns metadata or 404.
-- `GET /api/v1/assets/:assetId/original`: looks up internal metadata, safely opens the UUID-derived local file, returns a `StreamableFile` in the original MIME type.
-- `GET /api/v1/assets/:assetId/thumbnail`: returns the JPEG thumbnail as a stream.
+- In the isolated 11C composition, `GET /api/v1/assets/` (and without trailing slash) returns only actor-owned metadata, newest first.
+- `GET /api/v1/assets/:assetId` uses an owner predicate and returns metadata or the same 404 for foreign, ownerless and missing rows.
+- `GET /api/v1/assets/:assetId/original` and `/thumbnail` require scoped metadata before any storage open. These routes remain unavailable through the production application.
 - `GET /health`: process liveness response; `GET /health/ready`: performs database `SELECT 1` and returns 503 if unavailable.
 
 ## Current backend layout
@@ -94,12 +93,12 @@ Migration commands require dedicated `MIGRATION_POSTGRES_*` settings and databas
 
 ## Known limitations / not yet implemented
 
-- Phase 11B adds an owner column and database constraints, but per-user media authorization is not implemented. Existing ownerless rows remain quarantined. **Do not publicly expose or re-enable** media endpoints before the later reviewed M11 route boundary.
+- Phase 11B adds an owner column and database constraints. The unmounted 11C core now has owner-scoped repository/service methods, pending independent review. Existing ownerless rows remain quarantined. **Do not publicly expose or re-enable** media endpoints before the later reviewed M11 route boundary.
 - No asset deletion/trash or cursor pagination.
 - HTTP tests mostly mock repository/storage; Phase 9B also runs upload HTTP cases against real storage in isolated temporary directories. The separate PostgreSQL 18 suite verifies the migrated schema, repository behavior, legacy baselining, repeat runs, concurrency and failure cases using a disposable database. Real development migrations and restoration from a real backup were not exercised.
 - `size` remains a signed 32-bit INTEGER. No large-file or timestamp conversion was introduced. Historical development records were not inspected or changed by M8.
-- Cross-system upload durability and startup recovery are not complete. A process/host crash can strand temporary files, one published file, or files without metadata. A database error with an uncertain commit outcome can cause compensation to remove files for a committed row. Cleanup can fail if the filesystem is unavailable or permissions change. No broad automatic deletion is implemented.
-- Focused failure-injection tests for filesystem write and cleanup failures remain to be added; existing tests cover stream interruptions, invalid images, collisions and simulated database failures.
+- Cross-system upload durability and startup recovery are not complete. A process/host crash can strand temporary files, one published file, or files without metadata. The unmounted 11C core retains files when COMMIT outcome is uncertain, avoiding deliberate deletion of possibly committed media. Cleanup after an acknowledged rollback can fail if the filesystem is unavailable or permissions change. No broad automatic deletion is implemented.
+- Focused filesystem write-failure injection remains to be added. Existing tests cover stream interruptions, invalid images, collisions, simulated database failures and a cleanup failure that preserves the original error.
 - Local filesystem safety assumes the configured storage root and its parent are controlled by the operator; it does not defend against a privileged process replacing directories concurrently. Isolated filesystem/NAS support and a full upload resource threat model remain future work.
 - No fully Dockerized backend or Redis/BullMQ worker yet; no mobile application or ML service integrated.
 - Swagger/OpenAPI remains in source for isolated tests but is disabled in the production composition during M10.

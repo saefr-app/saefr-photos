@@ -16,6 +16,10 @@ import {
 } from 'vitest';
 
 import { DatabaseService } from '../src/database/database.service.js';
+import { AssetsRepository } from '../src/assets/assets.repository.js';
+import { AssetsService } from '../src/assets/assets.service.js';
+import type { AuthenticatedActor } from '../src/auth/auth-session.service.js';
+import type { LocalStorageService } from '../src/storage/local-storage.service.js';
 import { AuthSessionService } from '../src/auth/auth-session.service.js';
 import { PasswordService } from '../src/auth/password.service.js';
 import {
@@ -555,6 +559,52 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     await legacyFixture();
     await migrateToLatest(db, true);
     const original = await assetSnapshot();
+    const assets = new AssetsRepository({
+      db: db as DatabaseService['db'],
+    } as DatabaseService);
+    const owner = '00000000-0000-4000-8000-000000000011';
+    expect(await assets.findAll(owner)).toEqual([]);
+    expect(
+      await assets.findById('00000000-0000-4000-8000-000000000001', owner),
+    ).toBeUndefined();
+    expect(
+      await assets.findFileById('00000000-0000-4000-8000-000000000001', owner),
+    ).toBeUndefined();
+    const storage = {
+      openOriginal: async () => {
+        throw new Error('ownerless storage must remain inaccessible');
+      },
+      openThumbnail: async () => {
+        throw new Error('ownerless storage must remain inaccessible');
+      },
+    } as unknown as LocalStorageService;
+    const service = new AssetsService(assets, storage);
+    const actor: AuthenticatedActor = {
+      userId: owner,
+      username: 'assetowner',
+      role: 'user',
+      sessionId: '00000000-0000-4000-8000-000000000012',
+      expiresAt: new Date('2030-01-01T00:00:00Z'),
+      passwordChangeRequired: false,
+      csrfToken: Buffer.alloc(32),
+    };
+    for (const id of [
+      '00000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-000000000099',
+    ]) {
+      await expect(service.findById(actor, id)).rejects.toMatchObject({
+        message: 'Asset not found',
+        status: 404,
+      });
+      await expect(service.getOriginal(actor, id)).rejects.toMatchObject({
+        message: 'Asset not found',
+        status: 404,
+      });
+      await expect(service.getThumbnail(actor, id)).rejects.toMatchObject({
+        message: 'Asset not found',
+        status: 404,
+      });
+    }
     await expect(
       sql`insert into public.asset
       (id, filename, mime_type, size, storage_path, created_at) values

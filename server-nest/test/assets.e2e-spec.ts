@@ -10,6 +10,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { LegacyAssetsTestModule } from './helpers/legacy-assets-test.module.js';
 import { AssetsRepository } from '../src/assets/assets.repository.js';
+import { RequestAuthenticator } from '../src/auth/request-auth.js';
+import { assetAuthenticator, assetHeaders } from './helpers/asset-auth.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { LocalStorageService } from '../src/storage/local-storage.service.js';
 
@@ -56,6 +58,8 @@ describe('Assets API (e2e)', () => {
       .useValue({
         ping: vi.fn().mockResolvedValue(undefined),
       })
+      .overrideProvider(RequestAuthenticator)
+      .useValue(assetAuthenticator)
       .overrideProvider(AssetsRepository)
       .useValue({
         findAll,
@@ -87,6 +91,7 @@ describe('Assets API (e2e)', () => {
 
   it('lists asset metadata', async () => {
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: '/api/v1/assets',
     });
@@ -107,6 +112,7 @@ describe('Assets API (e2e)', () => {
 
   it('supports the trailing slash', async () => {
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: '/api/v1/assets/',
     });
@@ -116,6 +122,7 @@ describe('Assets API (e2e)', () => {
 
   it('retrieves metadata by UUID', async () => {
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: `/api/v1/assets/${asset.id}`,
     });
@@ -129,6 +136,7 @@ describe('Assets API (e2e)', () => {
 
   it('returns 404 for an unknown asset', async () => {
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: '/api/v1/assets/11111111-1111-4111-8111-111111111111',
     });
@@ -138,6 +146,7 @@ describe('Assets API (e2e)', () => {
 
   it('returns 400 for an invalid UUID', async () => {
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: '/api/v1/assets/not-a-uuid',
     });
@@ -147,6 +156,7 @@ describe('Assets API (e2e)', () => {
 
   it('streams the original image', async () => {
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: `/api/v1/assets/${asset.id}/original`,
     });
@@ -159,6 +169,7 @@ describe('Assets API (e2e)', () => {
 
   it('streams the JPEG thumbnail', async () => {
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: `/api/v1/assets/${asset.id}/thumbnail`,
     });
@@ -174,6 +185,7 @@ describe('Assets API (e2e)', () => {
     );
 
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: `/api/v1/assets/${asset.id}/thumbnail`,
     });
@@ -183,6 +195,7 @@ describe('Assets API (e2e)', () => {
 
   it('returns 404 for an unknown original image', async () => {
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: '/api/v1/assets/11111111-1111-4111-8111-111111111111/original',
     });
@@ -192,6 +205,7 @@ describe('Assets API (e2e)', () => {
 
   it('rejects invalid UUIDs on file endpoints', async () => {
     const response = await app.inject({
+      headers: assetHeaders(),
       method: 'GET',
       url: '/api/v1/assets/invalid/thumbnail',
     });
