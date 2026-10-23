@@ -1,12 +1,12 @@
 # Saefr Photos backend
 
-NestJS 12, Fastify, Kysely, PostgreSQL 18 and Sharp. The M10 authentication
-foundation is committed and pushed on its feature branch through `c5cdc05`;
-ownerless asset endpoints remain blocked pending M11 ownership.
-The milestone-wide review found no confirmed blocking defect; no PR or merge
-has occurred, and M10 is not production deployment-ready.
-Keep the API local until the remaining authorization and deployment work is reviewed.
-Run npm commands from `server-nest/` with Node.js 24.
+NestJS 12, Fastify, Kysely, PostgreSQL 18 and Sharp. M10 authentication
+was merged into `integration` as `acf6ed4`. M11B–M11D ownership schema,
+asset core and secure HTTP exposure are reviewed feature-branch checkpoints.
+Legacy NULL-owned assets remain inaccessible. No M11 PR, real-data upgrade
+or production deployment has occurred. Keep the API local until the remaining
+integration and deployment gates are reviewed. Run npm commands from
+`server-nest/` with Node.js 24.
 
 ## Setup and runtime configuration
 
@@ -35,10 +35,12 @@ Ports must be integers from 1 to 65535. A relative `STORAGE_ROOT` is resolved
 from the process working directory. Invalid settings stop startup with a
 setting-specific error that does not print configured values. An explicit
 `HOST` can bind beyond localhost, so keep it local until deployment safeguards
-are reviewed. The M10 production composition does not mount asset routes.
+are reviewed. The M11 feature-branch composition mounts owner-scoped asset
+routes behind early cookie/session and Origin/CSRF authorization; this is not
+public-deployment approval.
 
-Startup does not run migrations. It checks the exact managed M10 schema before
-listening and fails safely if the database is unavailable or incompatible.
+Startup does not run migrations. It checks the exact managed M8, M10 and
+M11 schema/history before listening and fails safely if the database is unavailable or incompatible.
 The existing development database has not been approved for this upgrade;
 do not run the migration or operator commands against it to make startup pass.
 `GET /health/ready` checks database connectivity. Swagger is disabled by
@@ -65,8 +67,10 @@ integration runner creates a uniquely named `postgres:18` container with
 in-memory storage and a random port bound to `127.0.0.1`. It supplies test
 credentials to Vitest, verifies container isolation, and removes the
 container after normal runs, test failures and handled termination signals.
-M10 authentication integration tests run real HTTP against a localhost socket
-and random databases inside that disposable container.
+Selected M10 authentication and M11 ownership integration tests run real
+HTTP against a localhost socket and random databases inside that disposable
+container, using
+synthetic users/assets and temporary storage.
 It does not use the root Compose project, `.env`, the development database
 volume, or files under `storage/`. If the runner is killed before cleanup,
 inspect containers labeled `dev.saefr.purpose=milestone-07-integration` and

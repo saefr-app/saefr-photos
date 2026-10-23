@@ -1,10 +1,10 @@
 # Database migrations
 
-## M11 ownership foundation (Phase 11B; awaiting review)
+## M11 ownership foundation (Phase 11B; committed on the feature branch)
 
 The new version `202610220001_asset_ownership` adds nullable UUID `public.asset.owner_id` without a default. It adds a validated, non-deferrable foreign key to `public.app_user(id)` with `ON DELETE RESTRICT` and `ON UPDATE NO ACTION`, a B-tree index on `(owner_id, created_at DESC, id DESC)`, and an enforced `CHECK (owner_id IS NOT NULL) NOT VALID`. Existing rows remain NULL-owned; the check rejects new NULL inserts and updates to old NULL-owned rows until ownership is supplied. It is intentionally unvalidated even on fresh installations.
 
-The runner validates Kysely metadata and the ordered migration ledger before choosing an asset inspector. Before M11 is applied, it uses the frozen M8 asset contract and rejects premature ownership objects. After M11, it uses the exact ownership catalog contract and rejects missing, changed or extra columns, constraints, indexes, triggers, rules, row security and relation substitutions. M8 and M10 migration files and historical inspectors are unchanged. Status remains read-only, and API startup never applies a version. The existing production asset lockdown remains in place; the retained unscoped asset code is not mounted.
+The runner validates Kysely metadata and the ordered migration ledger before choosing an asset inspector. Before M11 is applied, it uses the frozen M8 asset contract and rejects premature ownership objects. After M11, it uses the exact ownership catalog contract and rejects missing, changed or extra columns, constraints, indexes, triggers, rules, row security and relation substitutions. M8 and M10 migration files and historical inspectors are unchanged. Status remains read-only, and API startup never applies a version. The reviewed M11D feature-branch application mounts owner-scoped asset routes behind an early authentication gate and requires exact M11 readiness before listening. This is not deployment approval.
 
 Fresh, M8-managed, M10-managed and explicitly baselined compatible legacy databases are supported by the disposable tests. This source change **does not authorize** a real database upgrade. Old application binaries have a strict validator that rejects the M11 schema; use a maintenance window and a separately reviewed backup, recovery and isolated rehearsal plan before seeking approval for any real migration. Historical NULL rows remain quarantined and must not be assigned by inference.
 

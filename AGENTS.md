@@ -20,7 +20,7 @@ When these documents disagree with working code, report the discrepancy; don't s
 - Original FastAPI/SQLModel implementation: `server/`; retained as a migration reference until explicitly approved for removal.
 - Development PostgreSQL: root `compose.yml`, persisted Docker volume; **contains existing asset metadata**.
 - Local media: root `storage/originals/` and `storage/thumbnails/`; contains **real files that must be preserved**.
-- Nest application composition: `server-nest/src/app.module.ts`. Active modules include `auth`, `users`, `database` and `health`; `assets` and `storage` remain in source for isolated tests but asset routes are not mounted in production. Swagger setup: `src/openapi/swagger.ts`.
+- Nest application composition: `server-nest/src/app.module.ts`. Active modules include `auth`, `users`, `assets`, `storage`, `database` and `health`. Asset routes are mounted behind the reviewed M11 early authentication gate and owner-scoped queries on this feature branch; this does not authorize deployment. Swagger setup: `src/openapi/swagger.ts`.
 - `.nvmrc` currently selects Node.js 24. Run npm commands inside `server-nest/`, not the repository root.
 
 ## Development standards
@@ -40,7 +40,7 @@ When these documents disagree with working code, report the discrepancy; don't s
 - Do not commit secrets or copy `.env` into reports. Do not log passwords, tokens, or private image content.
 - Do not change git branches, merge, reset, rebase, force-push, commit, push, publish, or deploy without user approval for that operation. `git status`, `git diff`, and read-only git commands are fine.
 - No edits outside the approved milestone scope without explaining and obtaining approval; preserve user changes and check `git status` first. Do not silently discard uncommitted work.
-- M10 authentication is implemented on `feat/m10-auth-foundation`, but per-user asset authorization is **not** implemented. Production asset endpoints remain locked for every caller. Keep the API bound to localhost and do not expose or reopen media endpoints before M11 ownership and authorization are designed, tested and reviewed.
+- M10 authentication is merged into `integration`. M11 owner-scoped asset authorization is implemented and reviewed on `feat/m11-asset-ownership`; legacy NULL-owned assets remain quarantined. Keep the API bound to localhost. Do not deploy or publicly expose media routes, migrate development data, or map legacy ownership without separate approval and a reviewed recovery plan.
 
 ## Standard milestone execution
 
