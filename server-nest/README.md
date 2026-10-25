@@ -1,12 +1,12 @@
 # Saefr Photos backend
 
 NestJS 12, Fastify, Kysely, PostgreSQL 18 and Sharp. M10 authentication
-was merged into `integration` as `acf6ed4`. M11B–M11D ownership schema,
-asset core and secure HTTP exposure are reviewed feature-branch checkpoints.
-Legacy NULL-owned assets remain inaccessible. No M11 PR, real-data upgrade
-or production deployment has occurred. Keep the API local until the remaining
-integration and deployment gates are reviewed. Run npm commands from
-`server-nest/` with Node.js 24.
+was merged into `integration` as `acf6ed4`. M11 ownership and secure asset
+authorization were merged through [PR #4](https://github.com/saefr-app/saefr-photos/pull/4)
+as `2141bb9` and passed local post-merge verification. Legacy NULL-owned assets
+remain inaccessible. No real-data upgrade or production deployment has occurred.
+Keep the API local until the deployment gates are reviewed. Run npm commands
+from `server-nest/` with Node.js 24.
 
 ## Setup and runtime configuration
 
@@ -35,7 +35,7 @@ Ports must be integers from 1 to 65535. A relative `STORAGE_ROOT` is resolved
 from the process working directory. Invalid settings stop startup with a
 setting-specific error that does not print configured values. An explicit
 `HOST` can bind beyond localhost, so keep it local until deployment safeguards
-are reviewed. The M11 feature-branch composition mounts owner-scoped asset
+are reviewed. The merged M11 composition mounts owner-scoped asset
 routes behind early cookie/session and Origin/CSRF authorization; this is not
 public-deployment approval.
 
