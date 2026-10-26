@@ -77,8 +77,9 @@ export class BoundImageStorageService implements AssetImageStorage {
       attemptId,
       input,
       async (bytes) => {
+        // Multipart completion errors belong to the HTTP parser, not Sharp.
+        await verifyComplete?.();
         try {
-          await verifyComplete?.();
           const metadata = await sharp(bytes, {
             limitInputPixels: MAX_IMAGE_PIXELS,
           }).metadata();
@@ -114,6 +115,10 @@ export class BoundImageStorageService implements AssetImageStorage {
     if (first.status === 'too_large') {
       throw new PayloadTooLargeException('File too large');
     }
+    if (first.status === 'empty_input') {
+      throw new UnsupportedMediaTypeException('Empty image file');
+    }
+    if (first.status === 'input_error') throw first.error;
     if (first.status !== 'published' || !thumbnailBytes) {
       throw new ServiceUnavailableException('Storage unavailable');
     }

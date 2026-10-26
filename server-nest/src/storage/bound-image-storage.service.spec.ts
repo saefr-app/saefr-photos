@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 
 import { ConfigService } from '@nestjs/config';
+import { BadRequestException } from '@nestjs/common';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -89,10 +90,29 @@ describe('provider-backed M11 image surface on synthetic storage', () => {
         'image/jpeg',
         Readable.from([original]),
         async () => {
-          throw new Error('truncated request');
+          throw new BadRequestException('Incomplete multipart request');
         },
       ),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(await readdir(join(root, 'originals'))).toEqual([]);
+    expect(await readdir(join(root, 'thumbnails'))).toEqual([]);
+  });
+
+  it('preserves empty-image and unexpected verification errors without publishing', async () => {
+    await expect(
+      service.saveImage(randomUUID(), 'image/jpeg', Readable.from([])),
     ).rejects.toMatchObject({ status: 415 });
+    const internal = new Error('private parser detail');
+    await expect(
+      service.saveImage(
+        randomUUID(),
+        'image/jpeg',
+        Readable.from([original]),
+        async () => {
+          throw internal;
+        },
+      ),
+    ).rejects.toBe(internal);
     expect(await readdir(join(root, 'originals'))).toEqual([]);
     expect(await readdir(join(root, 'thumbnails'))).toEqual([]);
   });

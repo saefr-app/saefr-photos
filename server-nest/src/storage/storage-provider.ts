@@ -37,6 +37,18 @@ export type PublicationOutcome =
       readonly status: 'collision' | 'too_large' | 'unavailable' | 'uncertain';
       readonly object?: PublishedObject;
       readonly durable: false;
+    }
+  | {
+      /** Source or caller validation failed before publication. Internal only. */
+      readonly status: 'input_error';
+      readonly error: unknown;
+      readonly object?: undefined;
+      readonly durable: false;
+    }
+  | {
+      readonly status: 'empty_input';
+      readonly object?: undefined;
+      readonly durable: false;
     };
 
 export type OpenOutcome =

@@ -132,4 +132,88 @@ describe('M12 asset-ID transaction coordination on disposable PostgreSQL', () =>
       await other.onModuleDestroy();
     }
   });
+
+  it('refuses insertion when the session expires during the asset-ID lock wait', async () => {
+    const id = randomUUID();
+    const other = new DatabaseService(testConfig());
+    let pending: ReturnType<AssetsRepository['createForActor']> | undefined;
+    try {
+      await sql`update public.auth_session
+        set expires_at = clock_timestamp() + interval '3 seconds'
+        where id = ${sessionId}::uuid`.execute(db.db);
+      await db.db.transaction().execute(async (transaction) => {
+        await lockAssetId(transaction, id);
+        pending = new AssetsRepository(other).createForActor(actor, {
+          id,
+          filename: 'expired.jpg',
+          mime_type: 'image/jpeg',
+          size: 1,
+          storage_path: `/synthetic/originals/${id}.jpg`,
+          created_at: new Date(),
+        });
+        await vi.waitFor(async () => {
+          const waiting = await sql<{
+            count: number;
+          }>`select count(*)::integer as count
+            from pg_stat_activity where datname = current_database()
+            and wait_event_type = 'Lock'
+            and query like '%pg_advisory_xact_lock%'`.execute(db.db);
+          expect(waiting.rows[0].count).toBeGreaterThanOrEqual(1);
+        });
+        // Query the database clock, rather than relying on a fixed sleep.
+        await vi.waitFor(
+          async () => {
+            const elapsed = await sql<{ expired: boolean }>`select
+            clock_timestamp() >= expires_at as expired
+            from public.auth_session where id = ${sessionId}::uuid`.execute(
+              db.db,
+            );
+            expect(elapsed.rows[0]?.expired).toBe(true);
+          },
+          { timeout: 10_000 },
+        );
+      });
+      expect(await pending).toMatchObject({
+        status: 'rolled_back',
+        error: { status: 401 },
+      });
+      expect(
+        await db.db
+          .selectFrom('asset')
+          .select('id')
+          .where('id', '=', id)
+          .execute(),
+      ).toEqual([]);
+    } finally {
+      await pending?.catch(() => undefined);
+      await sql`update public.auth_session
+        set expires_at = clock_timestamp() + interval '1 hour'
+        where id = ${sessionId}::uuid`.execute(db.db);
+      await other.onModuleDestroy();
+    }
+  }, 15_000);
+
+  it('still inserts an asset with a valid session after coordination', async () => {
+    const id = randomUUID();
+    try {
+      const result = await new AssetsRepository(db).createForActor(actor, {
+        id,
+        filename: 'valid.jpg',
+        mime_type: 'image/jpeg',
+        size: 1,
+        storage_path: `/synthetic/originals/${id}.jpg`,
+        created_at: new Date(),
+      });
+      expect(result.status).toBe('committed');
+      expect(
+        await db.db
+          .selectFrom('asset')
+          .select('id')
+          .where('id', '=', id)
+          .executeTakeFirst(),
+      ).toEqual({ id });
+    } finally {
+      await db.db.deleteFrom('asset').where('id', '=', id).execute();
+    }
+  });
 });

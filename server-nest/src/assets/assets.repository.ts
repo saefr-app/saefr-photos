@@ -129,6 +129,18 @@ export class AssetsRepository {
             await lockAssetId(transaction, asset.id);
             await assertAssetIdNotRetiredIfPresent(transaction, asset.id);
 
+            // The advisory lock can wait past expiry. Row locks prevent
+            // revocation races, but cannot stop database time from advancing.
+            const afterCoordination = await transaction
+              .selectFrom('auth_session')
+              .select(sql<boolean>`expires_at > clock_timestamp()`.as('valid'))
+              .where('id', '=', actor.sessionId)
+              .where('user_id', '=', actor.userId)
+              .executeTakeFirst();
+            if (!afterCoordination?.valid) {
+              throw new UnauthorizedException('Unauthorized');
+            }
+
             return await transaction
               .insertInto('asset')
               .values({ ...asset, owner_id: actor.userId })

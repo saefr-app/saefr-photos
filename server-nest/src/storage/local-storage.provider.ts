@@ -156,6 +156,8 @@ export class LocalStorageProvider implements StorageProvider {
     let directory: FileHandle | undefined;
     let linkAttempted = false;
     let object: PublishedObject | undefined;
+    let inputError: unknown;
+    let emptyInput = false;
     try {
       const destinationName = this.name(target);
       directory = await this.pin(target.role);
@@ -184,13 +186,44 @@ export class LocalStorageProvider implements StorageProvider {
             callback(null, chunk);
           },
         });
-        await pipeline(
-          source,
-          limit,
-          handle.createWriteStream({ autoClose: true }),
-        );
-        if (size === 0) throw new Error('Empty storage input');
-        if (beforePublish) await beforePublish(Buffer.concat(chunks));
+        const destinationStream = handle.createWriteStream({ autoClose: true });
+        let firstFault: 'source' | 'destination' | undefined;
+        let sourcePremature = false;
+        source.once('error', () => {
+          firstFault ??= 'source';
+        });
+        source.once('close', () => {
+          if (!source.readableEnded) sourcePremature = true;
+        });
+        destinationStream.once('error', () => {
+          firstFault ??= 'destination';
+        });
+        try {
+          await pipeline(source, limit, destinationStream);
+        } catch (error) {
+          // A source/parser failure is distinct from a filesystem write
+          // failure. Retain the former only for internal HTTP classification.
+          if (
+            (firstFault === 'source' ||
+              (sourcePremature && firstFault !== 'destination')) &&
+            !(error instanceof StorageInputTooLarge)
+          ) {
+            inputError = error;
+          }
+          throw error;
+        }
+        if (size === 0) {
+          emptyInput = true;
+          throw new Error('Empty storage input');
+        }
+        if (beforePublish) {
+          try {
+            await beforePublish(Buffer.concat(chunks));
+          } catch (error) {
+            inputError = error;
+            throw error;
+          }
+        }
       } finally {
         await handle.close().catch(() => undefined);
       }
@@ -237,6 +270,9 @@ export class LocalStorageProvider implements StorageProvider {
             return { status: 'uncertain', durable: false };
         }
       }
+      if (emptyInput) return { status: 'empty_input', durable: false };
+      if (inputError !== undefined)
+        return { status: 'input_error', error: inputError, durable: false };
       return {
         status:
           error instanceof StorageInputTooLarge

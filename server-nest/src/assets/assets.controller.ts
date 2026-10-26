@@ -168,6 +168,15 @@ export class AssetsController {
       }
 
       const file: MultipartFile = first.value;
+      // Busboy can hand back a file stream already destroyed by malformed
+      // multipart data. Piping it afterward can wait forever for an event that
+      // has already fired.
+      if (file.file.destroyed) {
+        if (file.file.truncated) {
+          throw new PayloadTooLargeException('File too large');
+        }
+        throw new BadRequestException('Incomplete multipart request');
+      }
       const uploadStream = new PassThrough();
       const forwarding = pipeline(file.file, uploadStream);
       void forwarding.catch(() => undefined);

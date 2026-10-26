@@ -100,9 +100,8 @@ describe('local provider mechanics on synthetic private media', () => {
         throw new Error('truncated');
       })(),
     );
-    expect((await provider.publish(id, randomUUID(), broken)).status).toBe(
-      'unavailable',
-    );
+    const sourceFailure = await provider.publish(id, randomUUID(), broken);
+    expect(sourceFailure.status).toBe('input_error');
     expect(await readdir(join(root, 'originals'))).toEqual([]);
 
     class SyncFailure extends LocalStorageProvider {
