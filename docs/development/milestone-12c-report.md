@@ -20,6 +20,8 @@ The Linux-only C helper accepts only inherited role-directory fd 3. It checks `f
 
 A focused GitHub Actions workflow uses a GitHub-hosted `ubuntu-24.04` VM, read-only repository token and fresh regular image files under the runner's temporary directory. Only the disposable VM formats and mounts those image files. The native script records runner/kernel/filesystem details, checks independent ext4 identities, copied markers, unsupported/missing mounts and a capability-free non-root container. It has a local guard that refuses execution outside the expected hosted VM. The draft-PR trigger is needed because [GitHub requires a manual-dispatch workflow to exist on the default branch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow); manual dispatch can be used after the workflow reaches that branch. No hosted result is claimed until the run completes.
 
+The first hosted attempt, [run 40366246544](https://github.com/saefr-app/saefr-photos/actions/runs/40366246544), failed workflow validation before any job started: `runner.environment` and `runner.os` were unavailable in job-level `env`. Their assignments were moved to the execution step for a follow-up run. This failure supplied **no** native ext4 evidence and did not format a filesystem.
+
 ## Files changed
 
 - `docs/decisions/0006-asset-lifecycle-and-deletion.md`, `docs/development/milestone-12-spec.md`: approved marker-v2 architecture amendments transferred exactly.

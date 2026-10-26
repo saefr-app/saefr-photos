@@ -23,9 +23,6 @@ jobs:
        github.ref == 'refs/heads/feat/m12c-storage-compatibility')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    env:
-      EXPECTED_RUNNER_ENVIRONMENT: ${{ runner.environment }}
-      EXPECTED_RUNNER_OS: ${{ runner.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,6 +34,9 @@ jobs:
           cache-dependency-path: server-nest/package-lock.json
       - name: Build observer and run disposable ext4 checks
         working-directory: server-nest
+        env:
+          EXPECTED_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          EXPECTED_RUNNER_OS: ${{ runner.os }}
         run: |
           npm ci
           npm run build
