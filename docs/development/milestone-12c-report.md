@@ -22,6 +22,8 @@ A focused GitHub Actions workflow uses a GitHub-hosted `ubuntu-24.04` VM, read-o
 
 The first hosted attempt, [run 40366246544](https://github.com/saefr-app/saefr-photos/actions/runs/40366246544), failed workflow validation before any job started: `runner.environment` and `runner.os` were unavailable in job-level `env`. Their assignments were moved to the execution step for a follow-up run. This failure supplied **no** native ext4 evidence and did not format a filesystem.
 
+The next [hosted run 40366451003](https://github.com/saefr-app/saefr-photos/actions/runs/40366451003) reached the build on the GitHub-hosted runner but failed because its Ubuntu 24.04 userspace Linux headers lack the `fsuuid2`/`FS_IOC_GETFSUUID` definitions. No image creation or mount began. A small compatibility declaration now uses the exact [upstream Linux UAPI layout and ioctl number](https://github.com/torvalds/linux/blob/master/include/uapi/linux/fs.h); runtime support remains mandatory and will be tested by the next run. The helper compiled locally with this declaration; that is not ext4 certification.
+
 ## Files changed
 
 - `docs/decisions/0006-asset-lifecycle-and-deletion.md`, `docs/development/milestone-12-spec.md`: approved marker-v2 architecture amendments transferred exactly.

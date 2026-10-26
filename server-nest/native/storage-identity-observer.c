@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fs.h>
+#include <linux/ioctl.h>
 #include <linux/magic.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -12,6 +13,19 @@
 #include <sys/stat.h>
 #include <sys/vfs.h>
 #include <unistd.h>
+
+/* Ubuntu 24.04 userspace headers predate the Linux 6.8 filesystem UUID UAPI.
+ * Use the upstream ABI layout and request number when those headers are old;
+ * the running kernel must still implement the ioctl or observation fails.
+ * Source: linux/include/uapi/linux/fs.h (struct fsuuid2, FS_IOC_GETFSUUID).
+ */
+#ifndef FS_IOC_GETFSUUID
+struct fsuuid2 {
+  uint8_t len;
+  uint8_t uuid[16];
+};
+#define FS_IOC_GETFSUUID _IOR(0x15, 0, struct fsuuid2)
+#endif
 
 /* The only authority is an already-open role directory inherited as fd 3. */
 #define ROLE_FD 3
