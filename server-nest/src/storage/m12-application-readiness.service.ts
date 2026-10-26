@@ -6,10 +6,9 @@ import { ASSET_LIFECYCLE_MIGRATION } from '../database/migrations/migration-prov
 import { StorageBindingVerifier } from './storage-binding.service.js';
 
 /**
- * Proposed M12 startup assessment, kept separate from main.ts's existing
- * refusal until independent review approves the HTTP cutover. An unadopted or
- * unavailable storage set permits authorized metadata only; media stays gated
- * by a fresh binding check at each operation.
+ * M12 startup assessment. An unadopted or unavailable storage set permits
+ * authorized metadata only; media stays gated by a fresh binding check at
+ * each operation.
  */
 @Injectable()
 export class M12ApplicationReadinessService {

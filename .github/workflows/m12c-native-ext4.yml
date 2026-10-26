@@ -2,14 +2,17 @@ name: M12C native ext4 certification
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [integration]
+  push:
+    branches: [feat/m12-asset-lifecycle]
     paths:
       - ".github/workflows/m12c-native-ext4.yml"
       - "server-nest/native/**"
       - "server-nest/src/storage/**"
       - "server-nest/src/assets/**"
+      - "server-nest/src/auth/auth-session.service.ts"
+      - "server-nest/src/main.ts"
       - "server-nest/test/storage-native-http.integration-spec.ts"
+      - "server-nest/test/startup-main.integration-spec.ts"
       - "server-nest/test/run-integration.mjs"
       - "server-nest/test/native-ext4-certification.*"
 
@@ -19,11 +22,8 @@ permissions:
 jobs:
   native-ext4:
     if: >-
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.ref == 'feat/m12c-storage-compatibility' &&
-       github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/feat/m12c-storage-compatibility')
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/feat/m12-asset-lifecycle'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

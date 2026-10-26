@@ -52,17 +52,8 @@ export class AuthSessionService {
     private readonly passwords: PasswordService,
   ) {}
 
-  async assertReady(): Promise<void> {
+  async assertReady(): Promise<'m11' | 'm12'> {
     const status = await getMigrationStatus(this.database.db);
-    // M12B has no binding-aware storage provider. Refuse HTTP startup on any
-    // M12 schema, even if a singleton was populated synthetically.
-    if (
-      status.migrations.some(
-        (version) =>
-          version.name === ASSET_LIFECYCLE_MIGRATION && version.applied,
-      )
-    )
-      throw new Error('Application schema is not ready');
     if (
       ![
         INITIAL_ASSET_MIGRATION,
@@ -75,6 +66,12 @@ export class AuthSessionService {
       )
     )
       throw new Error('Application schema is not ready');
+    return status.migrations.some(
+      (version) =>
+        version.name === ASSET_LIFECYCLE_MIGRATION && version.applied,
+    )
+      ? 'm12'
+      : 'm11';
   }
 
   async login(

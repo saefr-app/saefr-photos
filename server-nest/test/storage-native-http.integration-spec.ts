@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import {
   readFile,
   rename,
@@ -8,6 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { createServer } from 'node:net';
 
 import { Test } from '@nestjs/testing';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -40,9 +42,12 @@ describe.skipIf(!nativeFixture)(
     let database: DatabaseService;
     let app: NestFastifyApplication;
     let baseUrl: string;
+    let production: ReturnType<typeof spawn> | undefined;
+    let productionClosed: Promise<void> | undefined;
     let ownerCookie: string;
     let ownerCsrf: string;
     let foreignCookie: string;
+    let foreignSessionId: string;
     let restrictedCookie: string;
     let original: Buffer;
     let ownerAsset: string;
@@ -72,6 +77,92 @@ describe.skipIf(!nativeFixture)(
       Cookie: cookie,
       ...(unsafe ? { Origin: origin, 'X-CSRF-Token': ownerCsrf } : {}),
     });
+
+    async function startProduction(
+      extraEnv: NodeJS.ProcessEnv = {},
+    ): Promise<string> {
+      const reserved = createServer();
+      await new Promise<void>((done) => reserved.listen(0, '127.0.0.1', done));
+      const address = reserved.address();
+      if (!address || typeof address === 'string') throw new Error('No port');
+      await new Promise<void>((done) => reserved.close(() => done()));
+      production = spawn(process.execPath, ['dist/main.js'], {
+        cwd: process.cwd(),
+        env: {
+          PATH: process.env.PATH,
+          NODE_ENV: 'test',
+          HOST: '127.0.0.1',
+          PORT: String(address.port),
+          APP_ORIGIN: origin,
+          POSTGRES_HOST: process.env.POSTGRES_HOST,
+          POSTGRES_PORT: process.env.POSTGRES_PORT,
+          POSTGRES_DB: process.env.POSTGRES_DB,
+          POSTGRES_USER: process.env.POSTGRES_USER,
+          POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD,
+          STORAGE_ROOT: process.env.STORAGE_ROOT,
+          STORAGE_ID: process.env.STORAGE_ID,
+          STORAGE_ORIGINALS_BINDING_ID:
+            process.env.STORAGE_ORIGINALS_BINDING_ID,
+          STORAGE_THUMBNAILS_BINDING_ID:
+            process.env.STORAGE_THUMBNAILS_BINDING_ID,
+          STORAGE_ORIGINALS_PROFILE: process.env.STORAGE_ORIGINALS_PROFILE,
+          STORAGE_THUMBNAILS_PROFILE: process.env.STORAGE_THUMBNAILS_PROFILE,
+          ...extraEnv,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const child = production;
+      child.stdout?.resume();
+      child.stderr?.resume();
+      child.on('error', () => undefined);
+      productionClosed = new Promise<void>((done) =>
+        child.once('close', () => done()),
+      );
+      const url = `http://127.0.0.1:${address.port}`;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (child.exitCode !== null) break;
+        try {
+          if (
+            (await fetch(`${url}/health`, { signal: AbortSignal.timeout(250) }))
+              .ok
+          )
+            return url;
+        } catch {
+          // The compiled entrypoint is still initializing.
+        }
+        await new Promise((done) => setTimeout(done, 50));
+      }
+      await stopProduction();
+      throw new Error('Compiled M12 entrypoint did not listen');
+    }
+
+    async function stopProduction(): Promise<void> {
+      const child = production;
+      if (!child) return;
+      if (child.exitCode === null && child.signalCode === null)
+        child.kill('SIGTERM');
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          productionClosed,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error('Child shutdown timeout')),
+              5000,
+            );
+          }),
+        ]);
+      } catch (error) {
+        if (child.exitCode === null && child.signalCode === null)
+          child.kill('SIGKILL');
+        await productionClosed;
+        throw error;
+      } finally {
+        clearTimeout(timer);
+        production = undefined;
+        productionClosed = undefined;
+      }
+    }
 
     beforeAll(async () => {
       if (!root || !nativeFixture)
@@ -109,14 +200,14 @@ describe.skipIf(!nativeFixture)(
       expect(app.get(LocalStorageService)).toBeInstanceOf(
         SchemaAwareImageStorageService,
       );
-      await expect(app.get(AuthSessionService).assertReady()).rejects.toThrow(
-        'Application schema is not ready',
+      await expect(app.get(AuthSessionService).assertReady()).resolves.toBe(
+        'm12',
       );
       expect(await app.get(M12ApplicationReadinessService).assess()).toBe(
         'metadata-only',
       );
-      // This isolated composition exercises the intended M12 path; main.ts
-      // still refuses M12 startup and has no configuration bypass.
+      // Keep the in-process fixture for provider inspection alongside the
+      // separate compiled-main child-process coverage below.
       await app.listen({ host: '127.0.0.1', port: 0 });
       const address = app.getHttpServer().address();
       if (!address || typeof address === 'string')
@@ -178,12 +269,16 @@ describe.skipIf(!nativeFixture)(
               created_at: new Date(),
             })
             .execute();
-        } else if (name === 'foreign') foreignCookie = cookie;
-        else restrictedCookie = cookie;
+        } else if (name === 'foreign') {
+          foreignCookie = cookie;
+          foreignSessionId = issued.actor.sessionId;
+        } else restrictedCookie = cookie;
       }
-    }, 30_000);
+      baseUrl = await startProduction();
+    }, 45_000);
 
     afterAll(async () => {
+      await stopProduction();
       await app?.close();
       await database?.onModuleDestroy();
       if (root && nativeFixture) {
@@ -239,6 +334,8 @@ describe.skipIf(!nativeFixture)(
           storage_layout_version: 1,
         })
         .execute();
+      await stopProduction();
+      baseUrl = await startProduction();
       expect(await app.get(M12ApplicationReadinessService).assess()).toBe(
         'media-ready',
       );
@@ -247,23 +344,41 @@ describe.skipIf(!nativeFixture)(
         { headers: headers(ownerCookie) },
       );
       expect(media.status).toBe(200);
+      expect(media.headers.get('cache-control')).toBe('no-store');
+      expect(media.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(media.headers.get('content-disposition')).toBe('inline');
       expect(Buffer.from(await media.arrayBuffer())).toEqual(original);
       const preview = await fetch(
         `${baseUrl}/api/v1/assets/${ownerAsset}/thumbnail`,
         { headers: headers(ownerCookie) },
       );
       expect(preview.status).toBe(200);
+      expect(preview.headers.get('cache-control')).toBe('no-store');
+      expect(preview.headers.get('x-content-type-options')).toBe('nosniff');
       expect(Buffer.from(await preview.arrayBuffer())).toEqual(original);
       const foreign = await fetch(
         `${baseUrl}/api/v1/assets/${ownerAsset}/original`,
         { headers: headers(foreignCookie) },
       );
       expect(foreign.status).toBe(404);
+      await database.db
+        .updateTable('auth_session')
+        .set({ expires_at: new Date(0) })
+        .where('id', '=', foreignSessionId)
+        .execute();
+      const expired = await fetch(
+        `${baseUrl}/api/v1/assets/${ownerAsset}/original`,
+        { headers: headers(foreignCookie) },
+      );
+      expect(expired.status).toBe(401);
       const restricted = await fetch(
         `${baseUrl}/api/v1/assets/${ownerAsset}/original`,
         { headers: headers(restrictedCookie) },
       );
       expect(restricted.status).toBe(403);
+      expect(
+        (await fetch(`${baseUrl}/api/v1/assets/${ownerAsset}/original`)).status,
+      ).toBe(401);
 
       const body = Buffer.concat([
         Buffer.from(
@@ -304,9 +419,40 @@ describe.skipIf(!nativeFixture)(
       ).toEqual(original);
     });
 
+    it('treats a wrong database-to-storage pairing as metadata-only', async () => {
+      await stopProduction();
+      baseUrl = await startProduction({ STORAGE_ID: randomUUID() });
+      const metadata = await fetch(`${baseUrl}/api/v1/assets/${ownerAsset}`, {
+        headers: headers(ownerCookie),
+      });
+      expect(metadata.status).toBe(200);
+      const media = await fetch(
+        `${baseUrl}/api/v1/assets/${ownerAsset}/original`,
+        {
+          headers: headers(ownerCookie),
+        },
+      );
+      expect(media.status).toBe(503);
+      expect(media.headers.get('content-type')).toMatch(/^application\/json/);
+      await stopProduction();
+      baseUrl = await startProduction();
+    });
+
     it('fails closed when a role or helper disappears after startup', async () => {
       if (!root) throw new Error('Native root unavailable');
       const originals = join(root, 'originals');
+      const marker = join(originals, '.saefr-storage.json');
+      const heldMarker = `${marker}.held`;
+      await rename(marker, heldMarker);
+      try {
+        const unavailable = await fetch(
+          `${baseUrl}/api/v1/assets/${ownerAsset}/original`,
+          { headers: headers(ownerCookie) },
+        );
+        expect(unavailable.status).toBe(503);
+      } finally {
+        await rename(heldMarker, marker);
+      }
       const moved = join(root, 'originals-held');
       await rename(originals, moved);
       await mkdir(originals);

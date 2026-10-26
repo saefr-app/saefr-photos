@@ -31,8 +31,8 @@ const FORMATS = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
- * Provider-backed version of the M11 image surface. Deliberately not mounted:
- * no native observer/profile is certified and M12 startup remains refused.
+ * Provider-backed version of the M11 image surface. The schema-aware token
+ * selects it only for exact M12 history, and every operation verifies storage.
  */
 export class BoundImageStorageService implements AssetImageStorage {
   private readonly attempts = new Map<string, readonly PublishedObject[]>();

@@ -6,6 +6,7 @@ import { RuntimeConfigError } from './runtime-config.js';
 import { safeErrorCode } from './errors/safe-error-code.js';
 import { registerAssetAccess } from './auth/asset-lockdown.js';
 import { AuthSessionService } from './auth/auth-session.service.js';
+import { M12ApplicationReadinessService } from './storage/m12-application-readiness.service.js';
 import { createHttpAdapter } from './http-adapter.js';
 
 async function bootstrap(): Promise<void> {
@@ -27,7 +28,12 @@ async function bootstrap(): Promise<void> {
 
     // Swagger is disabled by default during the M10 authorization transition.
 
-    await app.get(AuthSessionService).assertReady();
+    const schema = await app.get(AuthSessionService).assertReady();
+    if (schema === 'm12') {
+      // Storage outages permit authenticated metadata only. Every media
+      // operation still rechecks both roles through the bound provider.
+      await app.get(M12ApplicationReadinessService).assess();
+    }
 
     await app.listen({
       port: config.getOrThrow<number>('PORT'),

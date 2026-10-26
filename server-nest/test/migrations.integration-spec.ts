@@ -1499,7 +1499,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
   });
 
   it.each([false, true])(
-    'refuses HTTP readiness on M12 even with binding populated=%s',
+    'accepts exact M12 authentication history with binding populated=%s',
     async (populated) => {
       await migrateToLatest(db);
       if (populated)
@@ -1512,52 +1512,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
           { db } as DatabaseService,
           new PasswordService(),
         ).assertReady(),
-      ).rejects.toThrow('Application schema is not ready');
-      let startupOutput = '';
-      try {
-        await execFile(
-          process.execPath,
-          [resolve(process.cwd(), 'dist/main.js')],
-          {
-            cwd: process.cwd(),
-            timeout: 8000,
-            env: {
-              PATH: process.env.PATH,
-              NODE_ENV: 'test',
-              HOST: '127.0.0.1',
-              PORT: '34567',
-              APP_ORIGIN: 'http://127.0.0.1:34567',
-              STORAGE_ROOT: '/tmp/saefr-m12b-unused',
-              POSTGRES_HOST: '127.0.0.1',
-              POSTGRES_PORT: String(
-                testConfig().getOrThrow<number>('POSTGRES_PORT'),
-              ),
-              POSTGRES_DB: databaseName,
-              POSTGRES_USER: testConfig().getOrThrow<string>('POSTGRES_USER'),
-              POSTGRES_PASSWORD:
-                testConfig().getOrThrow<string>('POSTGRES_PASSWORD'),
-            },
-          },
-        );
-        throw new Error('M12B application unexpectedly started');
-      } catch (error: unknown) {
-        if (!(error instanceof Error) || !('code' in error) || error.code !== 1)
-          throw error;
-        const stdout =
-          'stdout' in error && typeof error.stdout === 'string'
-            ? error.stdout
-            : '';
-        const stderr =
-          'stderr' in error && typeof error.stderr === 'string'
-            ? error.stderr
-            : '';
-        startupOutput = stdout + stderr;
-      }
-      expect(startupOutput).toContain('Application startup failed');
-      expect(startupOutput).not.toContain('saefr-m12b-unused');
-      expect(startupOutput).not.toContain(
-        testConfig().getOrThrow<string>('POSTGRES_PASSWORD'),
-      );
+      ).resolves.toBe('m12');
     },
   );
 

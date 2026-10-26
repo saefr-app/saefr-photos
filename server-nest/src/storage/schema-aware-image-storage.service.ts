@@ -16,7 +16,7 @@ import { LocalStorageService } from './local-storage.service.js';
 /**
  * Resolve the active schema for each media operation. Never cache an M11
  * decision across a later schema upgrade or fall back after an inspection
- * failure. The production M12 HTTP startup gate remains in place until review.
+ * failure. M12 media remains gated by both role bindings at operation time.
  */
 export class SchemaAwareImageStorageService implements AssetImageStorage {
   private readonly legacy: LocalStorageService;
