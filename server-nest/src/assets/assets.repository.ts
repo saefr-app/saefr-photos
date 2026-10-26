@@ -8,6 +8,10 @@ import { sql, type Insertable, type Selectable } from 'kysely';
 import type { AuthenticatedActor } from '../auth/auth-session.service.js';
 import { DatabaseService } from '../database/database.service.js';
 import type { AssetTable } from '../database/database.types.js';
+import {
+  assertAssetIdNotRetiredIfPresent,
+  lockAssetId,
+} from './asset-id-coordination.js';
 
 export type AssetRecord = Pick<
   Selectable<AssetTable>,
@@ -119,6 +123,11 @@ export class AssetsRepository {
             if (user.password_change_required) {
               throw new ForbiddenException('Forbidden');
             }
+
+            // The M12 upload/deletion boundary serializes UUID decisions.
+            // Account and session locks must precede this advisory lock.
+            await lockAssetId(transaction, asset.id);
+            await assertAssetIdNotRetiredIfPresent(transaction, asset.id);
 
             return await transaction
               .insertInto('asset')

@@ -4,6 +4,7 @@ import type { Readable } from 'node:stream';
 
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -35,13 +36,31 @@ export interface ImageUpload {
   verifyComplete?: () => Promise<void>;
 }
 
+/** The active M11 implementation and the gated M12 provider share this surface. */
+export interface AssetImageStorage {
+  saveImage(
+    assetId: string,
+    mimeType: string,
+    input: Readable,
+    verifyComplete?: () => Promise<void>,
+  ): Promise<{ storagePath: string; mimeType: string; size: number }>;
+  deleteImage(assetId: string, mimeType: string): Promise<void>;
+  openOriginal(
+    assetId: string,
+    mimeType: string,
+    legacyStoragePath: string,
+  ): Promise<StoredFile>;
+  openThumbnail(assetId: string): Promise<StoredFile>;
+  finalizeImage?(assetId: string): Promise<void>;
+}
+
 @Injectable()
 export class AssetsService {
   private readonly logger = new Logger(AssetsService.name);
 
   constructor(
     private readonly assetsRepository: AssetsRepository,
-    private readonly storage: LocalStorageService,
+    @Inject(LocalStorageService) private readonly storage: AssetImageStorage,
   ) {}
 
   async upload(
@@ -106,6 +125,16 @@ export class AssetsService {
         `Asset upload commit outcome unknown for ${assetId}; ${safeErrorCode(result.error)}`,
       );
       throw new ServiceUnavailableException('Upload unavailable');
+    }
+
+    try {
+      await this.storage.finalizeImage?.(assetId);
+    } catch (error: unknown) {
+      // Metadata committed. A failed stage-link release is left for explicit
+      // reconciliation; never undo or report this upload as rolled back.
+      this.logger.error(
+        `Unable to release upload staging after commit; ${safeErrorCode(error)}`,
+      );
     }
 
     return this.toResponse(result.asset);

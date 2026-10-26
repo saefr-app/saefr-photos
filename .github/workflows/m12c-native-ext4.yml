@@ -1,0 +1,43 @@
+name: M12C native ext4 certification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [integration]
+    paths:
+      - ".github/workflows/m12c-native-ext4.yml"
+      - "server-nest/native/**"
+      - "server-nest/src/storage/**"
+      - "server-nest/test/native-ext4-certification.*"
+
+permissions:
+  contents: read
+
+jobs:
+  native-ext4:
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.ref == 'feat/m12c-storage-compatibility' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/feat/m12c-storage-compatibility')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      EXPECTED_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+      EXPECTED_RUNNER_OS: ${{ runner.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: server-nest/package-lock.json
+      - name: Build observer and run disposable ext4 checks
+        working-directory: server-nest
+        run: |
+          npm ci
+          npm run build
+          bash test/native-ext4-certification.sh

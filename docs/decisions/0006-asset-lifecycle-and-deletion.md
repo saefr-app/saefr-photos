@@ -125,7 +125,9 @@ No generic plugin system, object-storage implementation or arbitrary-path API is
 
 ### Distinct media-location identities
 
-Originals and thumbnails may be independently mounted. Each must have its own adopted binding identity and role marker.
+Originals and thumbnails may be independently mounted. Each must have its own adopted binding identity and role marker. Each bounded, versioned marker records provider-specific physical identity established by explicit provisioning or adoption. Runtime validation compares that evidence with fresh observations of the actual opened role directory and its filesystem, independently for each role. Matching logical IDs, pathname strings or copied markers alone are insufficient; configuration only locates a candidate and cannot authorize reassignment. Missing, mismatched, unsupported or uncertain physical evidence fails closed.
+
+PostgreSQL remains the logical provenance authority. No additional mandatory external runtime installation receipt is required: protected operator pairing/recovery manifests document adoption and cutover, not a second runtime authority. The specification defines marker version 2, independently of database storage layout 1, and the initial Linux/ext4 identity-observation feasibility gate. Native observation must work under the intended unprivileged deployment identity; any new helper/dependency needs separate approval, with no pathname-only, inode-only or device-number-only fallback. This amendment does not certify a profile or authorize M12C implementation.
 
 Existing assets have no per-asset storage identity. Use one database-resident `storage_binding` singleton as their provenance anchor: storage-set ID, distinct originals/thumbnail binding IDs and layout version. M12 supports exactly one adopted storage set for the entire asset population, including quarantined rows. This small installation record is necessary because configuration and markers alone cannot prove which storage belongs to the database; it is not a multi-storage management system.
 
@@ -139,7 +141,7 @@ A valid marker above a mount does not establish that the mounted media directory
 
 Runtime validation compares the database anchor, journal, configuration and provider-observed binding. Missing or unverifiable storage must never be treated as successful file absence. Do not impose a universal same-device-number requirement on explicitly adopted locations.
 
-Adoption and restoration are explicit operator procedures. Normal startup never creates or replaces markers, rewrites paths or adopts an unfamiliar disk. A marker protects against configuration mistakes, not a malicious host operator or deliberately cloned identity.
+Adoption and restoration are explicit operator procedures. Physical identity establishes continuity after adoption, not the correctness of the original historical pairing. Relocation/restoration onto changed physical locations requires controlled marker re-establishment after pairing verification, while preserving database logical identities and journal targets. Normal startup never creates, upgrades or repairs markers, rewrites paths or adopts an unfamiliar disk. Identity comparison assumes an operator-controlled namespace and does not defeat malicious concurrent host mutation. Privileged deliberate cloning/tampering remains outside the application threat boundary; an undetectable physical clone preserving all observed identities cannot be distinguished by this mechanism.
 
 ### Strict completion
 

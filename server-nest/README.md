@@ -39,6 +39,8 @@ are reviewed. The merged M11 composition mounts owner-scoped asset
 routes behind early cookie/session and Origin/CSRF authorization; this is not
 public-deployment approval.
 
+The merged M12B schema introduces lifecycle metadata, deletion receipts and an empty storage-binding table. On an applied M12 schema the current application refuses HTTP startup until storage provenance has been implemented and certified. The M12C feature branch builds a Linux-only descriptor-based identity helper using `cc` and the installed Linux UAPI headers; `npm run build:native` is included in `npm run build` on Linux. It requires no additional runtime privileges, but has not passed disposable ext4 certification. The provider is registered for injection but does not replace the active M11 asset-storage service; the M12 startup gate remains. The fresh-only storage operator command is not approved for real-data use. Do not use a marker or a populated singleton as a startup workaround. See the [M12C operator notes](../docs/development/milestone-12c-storage-operator-guide.md).
+
 Startup does not run migrations. It checks the exact managed M8, M10 and
 M11 schema/history before listening and fails safely if the database is unavailable or incompatible.
 The existing development database has not been approved for this upgrade;
