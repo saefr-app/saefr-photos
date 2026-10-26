@@ -17,7 +17,7 @@ first_mount="${scratch}/first"
 second_mount="${scratch}/second"
 cleanup() {
   local status=$?
-  for mounted in "${second_mount}" "${first_mount}"; do
+  for mounted in "${first_mount}/thumbnails" "${second_mount}" "${first_mount}"; do
     if mountpoint -q -- "${mounted}"; then
       sudo umount -- "${mounted}" || status=1
     fi
@@ -77,6 +77,21 @@ docker run --rm --network none --read-only --cap-drop ALL \
   --mount "type=bind,source=${PWD}/dist/native/storage-identity-observer,target=/observer,readonly" \
   node:24-bookworm sh -c 'exec 3</test/originals; exec /observer --identity'
 
+before="$(SAEFR_NATIVE_ROLE="${first_mount}/originals" node test/native-ext4-certification.mjs --identity)"
+sudo umount "${first_mount}"
+sudo mount -o loop,nodev,nosuid,noexec -- "${first}" "${first_mount}"
+after="$(SAEFR_NATIVE_ROLE="${first_mount}/originals" node test/native-ext4-certification.mjs --identity)"
+[[ "${before}" == "${after}" ]] || exit 2
+echo 'Same ext4 image and marker retained identity after unmount/remount'
+
+sudo mount --bind "${second_mount}/originals" "${first_mount}/thumbnails"
+SAEFR_NATIVE_SWAPPED="${first_mount}/thumbnails" \
+  node test/native-ext4-certification.mjs --swapped
+sudo umount "${first_mount}/thumbnails"
+
 sudo umount "${second_mount}"
+mkdir -- "${second_mount}/originals"
+cp -- "${first_mount}/originals/.saefr-storage.json" \
+  "${second_mount}/originals/.saefr-storage.json"
 SAEFR_NATIVE_MISSING="${second_mount}/originals" \
   node test/native-ext4-certification.mjs --missing
