@@ -363,7 +363,7 @@ describe.skipIf(!nativeFixture)(
       expect(foreign.status).toBe(404);
       await database.db
         .updateTable('auth_session')
-        .set({ expires_at: new Date(0) })
+        .set({ created_at: new Date(0), expires_at: new Date(1000) })
         .where('id', '=', foreignSessionId)
         .execute();
       const expired = await fetch(
