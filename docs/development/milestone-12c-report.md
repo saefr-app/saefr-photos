@@ -1,6 +1,6 @@
 # M12C — Storage compatibility and provenance implementation report
 
-- **Status:** Draft PR #8. Focused native ext4 checks passed on a GitHub-hosted runner; historical adoption, process-crash evidence and independent review remain gates. M12-schema HTTP startup is disabled.
+- **Status:** Draft PR #8. Focused native ext4 and one process-kill publication check passed on a GitHub-hosted runner; executable historical adoption, broader recovery evidence and independent review remain gates. M12-schema HTTP startup is disabled.
 - **Branch and base:** `feat/m12c-storage-compatibility` at `e175752c23fb7609690719b0527a55611b97983f`.
 - **Date:** 2026-10-26.
 
@@ -29,6 +29,8 @@ The next [hosted run 40366451003](https://github.com/saefr-app/saefr-photos/acti
 [Run 40366891732](https://github.com/saefr-app/saefr-photos/actions/runs/40366891732) **passed** on the same recorded image/kernel profile. The helper observed stable identities on ext4 under the unprivileged host user and inside a non-root `node:24-bookworm` container with no capabilities, no network and read-only mounts; tmpfs rejection, copied-marker mismatch and missing-mount refusal passed. The log confirms both disposable ext4 mounts and image files were removed.
 
 [Run 40367223110](https://github.com/saefr-app/saefr-photos/actions/runs/40367223110) **passed** the expanded native checks on GitHub-hosted `ubuntu24 20261023.334.3`, kernel `6.17.0-1022-azure`, e2fsprogs `1.47.0`. It exercised exact-byte provider upload/read and exact-target removal on disposable ext4, stable identity after unmount/remount of the same image, swapped role mount rejection, and rejection of a missing mount exposing a copied marker. The non-root, capability-free, network-disabled container check passed; cleanup logged removal of both temporary mounts and image files. A remount is not a process crash, VM reboot or power-loss test, and one runner profile does not certify every ext4/kernel/container combination.
+
+[Run 40369514754](https://github.com/saefr-app/saefr-photos/actions/runs/40369514754) **passed** on the same runner profile with a real `SIGKILL` at the provider's post-link, pre-directory-sync point. The original and its staging hard link remained in the disposable image, confirming why a publication without acknowledgement must be treated as uncertain and retained for explicit reconciliation. The test removed only its synthetic fixture afterward; the workflow logged removal of both temporary ext4 mounts and image files. This process-kill result does not establish database/FS crash recovery, VM reboot or power-loss durability.
 
 ## Files changed
 
@@ -61,8 +63,9 @@ The next [hosted run 40366451003](https://github.com/saefr-app/saefr-photos/acti
 | `npm run test:runtime-smoke`                        | PASS: safe nonzero exits for invalid configuration and unavailable authentication database  |
 | `npm run test:native`                               | PASS: 6 tests, including helper compilation and non-ext4 rejection                          |
 | Focused synthetic provider conformance              | PASS: 15 tests across 2 files after final formatting, including parent-path substitution    |
-| GitHub-hosted native ext4 conformance               | PASS: runs 40366891732 and 40367223110 on disposable ext4 images; mounts/images removed     |
-| Process/VM crash or power-loss conformance          | NOT RUN                                                                                     |
+| GitHub-hosted native ext4 conformance               | PASS: runs 40366891732, 40367223110 and 40369514754; temporary mounts/images removed        |
+| Post-link provider process kill                     | PASS: run 40369514754 retained possible original and staging link before synthetic cleanup  |
+| VM crash or power-loss conformance                  | NOT RUN                                                                                     |
 | Focused Prettier, Markdown links and Git whitespace | PASS: targeted Prettier; changed docs' relative link resolved; tracked/untracked whitespace |
 
 The first new full integration run found an M11-schema fixture regression: upload finalization queried `asset_deletion` before that historical schema existed. The journal check was made history-aware, while the shared asset-ID lock remains active. A later integration run executed concurrently with other CPU-heavy suites and timed out in two existing authentication-operator cases (203 passed, 2 timed out). The subsequent **sequential** integration run passed 205 cases. After adding the historical-adoption database test, another sequential run passed all 206 cases. These failures are recorded rather than hidden.
@@ -77,7 +80,7 @@ The helper uses the [Linux handle syscall contract](https://man7.org/linux/man-p
 
 ## Remaining security and compatibility gates
 
-This local host's `/tmp` is tmpfs and its development paths are btrfs. The only observed local ext4 mount is `/boot`, which was not used. QEMU is installed, but no usable `/dev/kvm` or prepared disposable guest image was available; no local host loop device, formatting, mount or privileged alternative was attempted. The isolated GitHub-hosted VM supplied native ext4 and non-root container evidence. Process/VM failure and power-loss evidence remain unavailable; a normal unmount/remount is insufficient. Unsupported observation stays unavailable without pathname, inode or device-number fallback. Existing provider tests inject staged-file and directory-sync failures, and the synthetic HTTP test checks unavailable media; process-crash certification remains unrun.
+This local host's `/tmp` is tmpfs and its development paths are btrfs. The only observed local ext4 mount is `/boot`, which was not used. QEMU is installed, but no usable `/dev/kvm` or prepared disposable guest image was available; no local host loop device, formatting, mount or privileged alternative was attempted. The isolated GitHub-hosted VM supplied native ext4 and non-root container evidence. The focused post-link process kill passed, but full database/FS crash recovery, VM failure and power-loss evidence remain unavailable; a normal unmount/remount is insufficient. Unsupported observation stays unavailable without pathname, inode or device-number fallback. Existing provider tests inject staged-file and directory-sync failures, and the synthetic HTTP test checks unavailable media.
 
 Further certification should cover reboot/container recreation, denied syscalls, fsync failure, partial removal and abrupt VM termination under documented cache assumptions. The hosted run already covered distinct disposable ext4 images, copied markers, non-root container execution, exact-byte publication/read/removal, a normal remount, and missing/swapped mounts. No filesystem was mounted or formatted on this local host, and `/boot` was not used. VM crash tests still cannot prove every hardware power-loss mode.
 
@@ -87,4 +90,4 @@ A fresh-only operator command is implemented but not approved for real use. Hist
 
 From this isolated worktree, with Node.js 24 and the existing dependencies available, run `npm run build`, `npm run typecheck`, `npm run lint`, `npm run test:native`, `npm run test`, `npm run test:e2e`, `npm run test:integration`, `npm run test:migrations`, and `npm run test:runtime-smoke` inside `server-nest/`. Integration commands must use the repository-owned disposable runner, never a direct Vitest invocation with ordinary database credentials. Native ext4 checks ran only in the guarded GitHub-hosted disposable VM workflow.
 
-Native ext4 evidence is now recorded, while executable historical-adoption and recovery cutovers, process-crash evidence, real-process M12 startup activation and independent security review remain gates. [Draft PR #8](https://github.com/saefr-app/saefr-photos/pull/8) is for visibility and is **not merge-ready**. No real-data migration, adoption, deployment or M12 deletion endpoint is authorized.
+Native ext4 and focused process-kill evidence are now recorded, while executable historical-adoption and recovery cutovers, comprehensive crash/recovery evidence, real-process M12 startup activation and independent security review remain gates. [Draft PR #8](https://github.com/saefr-app/saefr-photos/pull/8) is for visibility and is **not merge-ready**. No real-data migration, adoption, deployment or M12 deletion endpoint is authorized.
