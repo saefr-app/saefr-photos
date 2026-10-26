@@ -27,6 +27,7 @@ import {
   migrationConfig,
 } from '../src/database/migrations/migration-config.js';
 import {
+  ASSET_LIFECYCLE_MIGRATION,
   AUTHENTICATION_MIGRATION,
   ASSET_OWNERSHIP_MIGRATION,
   createMigrationProvider,
@@ -127,7 +128,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
   async function assetSnapshot() {
     return (
       await sql`select c.oid, c.relfilenode,
-      (select jsonb_agg(to_jsonb(a) - 'owner_id' order by a.id)
+      (select jsonb_agg(to_jsonb(a) - 'owner_id' - 'trashed_at' - 'lifecycle_version' order by a.id)
         from public.asset a) as records
       from pg_catalog.pg_class c where c.oid = 'public.asset'::regclass`.execute(
         db,
@@ -210,6 +211,29 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     };
   }
 
+  function m11Provider(baselineLegacy = false) {
+    return {
+      async getMigrations() {
+        const all =
+          await createMigrationProvider(baselineLegacy).getMigrations();
+        return {
+          [INITIAL_ASSET_MIGRATION]: all[INITIAL_ASSET_MIGRATION],
+          [AUTHENTICATION_MIGRATION]: all[AUTHENTICATION_MIGRATION],
+          [ASSET_OWNERSHIP_MIGRATION]: all[ASSET_OWNERSHIP_MIGRATION],
+        };
+      },
+    };
+  }
+
+  async function migrateM11Only(baselineLegacy = false) {
+    const result = await new Migrator({
+      db,
+      migrationTableSchema: 'public',
+      provider: m11Provider(baselineLegacy),
+    }).migrateToLatest();
+    if (result.error) throw result.error;
+  }
+
   async function migrateM8Only(baselineLegacy = false) {
     const migrator = new Migrator({
       db,
@@ -249,6 +273,11 @@ describe('PostgreSQL migrations and legacy baselining', () => {
         direction: 'Up',
         status: 'Success',
       },
+      {
+        migrationName: ASSET_LIFECYCLE_MIGRATION,
+        direction: 'Up',
+        status: 'Success',
+      },
     ]);
     const columns =
       await sql`select column_name, data_type, is_nullable, column_default
@@ -274,6 +303,12 @@ describe('PostgreSQL migrations and legacy baselining', () => {
         column_default: null,
       },
       {
+        column_name: 'lifecycle_version',
+        data_type: 'bigint',
+        is_nullable: 'NO',
+        column_default: '0',
+      },
+      {
         column_name: 'mime_type',
         data_type: 'character varying',
         is_nullable: 'NO',
@@ -297,13 +332,21 @@ describe('PostgreSQL migrations and legacy baselining', () => {
         is_nullable: 'NO',
         column_default: null,
       },
+      {
+        column_name: 'trashed_at',
+        data_type: 'timestamp with time zone',
+        is_nullable: 'YES',
+        column_default: null,
+      },
     ]);
     expect(await tables()).toEqual([
       'app_user',
       'asset',
+      'asset_deletion',
       'auth_session',
       'kysely_migration',
       'kysely_migration_lock',
+      'storage_binding',
     ]);
     expect((await getMigrationStatus(db)).installation).toBe('managed');
   });
@@ -318,7 +361,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     await migrateToLatest(db, true);
     expect(await assetSnapshot()).toEqual(original);
     const firstLedger = await ledger();
-    expect(firstLedger).toHaveLength(3);
+    expect(firstLedger).toHaveLength(4);
     expect(await migrateToLatest(db, true)).toEqual([]);
     expect(await migrateToLatest(db)).toEqual([]);
     expect(await ledger()).toEqual(firstLedger);
@@ -342,6 +385,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       { name: INITIAL_ASSET_MIGRATION, applied: true },
       { name: AUTHENTICATION_MIGRATION, applied: false },
       { name: ASSET_OWNERSHIP_MIGRATION, applied: false },
+      { name: ASSET_LIFECYCLE_MIGRATION, applied: false },
     ]);
 
     expect(await migrateToLatest(db)).toEqual([
@@ -352,6 +396,11 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       },
       {
         migrationName: ASSET_OWNERSHIP_MIGRATION,
+        direction: 'Up',
+        status: 'Success',
+      },
+      {
+        migrationName: ASSET_LIFECYCLE_MIGRATION,
         direction: 'Up',
         status: 'Success',
       },
@@ -376,7 +425,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       name: ASSET_OWNERSHIP_MIGRATION,
       applied: false,
     });
-    expect(await migrateToLatest(db)).toHaveLength(1);
+    expect(await migrateToLatest(db)).toHaveLength(2);
     expect(await assetSnapshot()).toEqual(before);
     expect((await ledger()).slice(0, 2)).toEqual(history);
     expect(
@@ -473,26 +522,33 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     expect(
       constraints.rows.map((row) => [row.name, row.valid, row.enforced]),
     ).toEqual([
+      ['asset_lifecycle_version_check', true, true],
       ['asset_owner_id_fkey', true, true],
       ['asset_owner_required_check', false, true],
       ['asset_pkey', true, true],
+      ['asset_trashed_at_finite_check', true, true],
     ]);
-    expect(constraints.rows[0].definition).toContain(
-      'REFERENCES app_user(id) ON DELETE RESTRICT',
-    );
-    expect(constraints.rows[1].definition).toContain('NOT VALID');
+    expect(
+      constraints.rows.find((row) => row.name === 'asset_owner_id_fkey')
+        ?.definition,
+    ).toContain('REFERENCES app_user(id) ON DELETE RESTRICT');
+    expect(
+      constraints.rows.find((row) => row.name === 'asset_owner_required_check')
+        ?.definition,
+    ).toContain('NOT VALID');
     const index = await sql<{
       definition: string;
     }>`select pg_catalog.pg_get_indexdef(indexrelid) as definition
       from pg_catalog.pg_index where indrelid = 'public.asset'::regclass and not indisprimary`.execute(
       db,
     );
-    expect(index.rows).toEqual([
-      {
-        definition:
-          'CREATE INDEX asset_owner_created_id_idx ON public.asset USING btree (owner_id, created_at DESC, id DESC)',
-      },
-    ]);
+    expect(index.rows.map((row) => row.definition).sort()).toEqual(
+      [
+        'CREATE INDEX asset_active_owner_created_id_idx ON public.asset USING btree (owner_id, created_at DESC, id DESC) WHERE (trashed_at IS NULL)',
+        'CREATE INDEX asset_owner_created_id_idx ON public.asset USING btree (owner_id, created_at DESC, id DESC)',
+        'CREATE INDEX asset_trash_owner_trashed_id_idx ON public.asset USING btree (owner_id, trashed_at DESC, id DESC) WHERE (trashed_at IS NOT NULL)',
+      ].sort(),
+    );
   });
 
   it.each([
@@ -502,7 +558,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     'rejects a disabled M11 ownership FK trigger on %s without repair',
     async (relation, functionName) => {
       await legacyFixture();
-      await migrateToLatest(db, true);
+      await migrateM11Only(true);
       const originalLedger = await ledger();
       const originalAssets = await assetSnapshot();
       const originalFullAssets = await fullAssetRecords();
@@ -676,7 +732,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     ).toBe(false);
   });
 
-  it('serializes two M10-to-M11 runners and records ownership only once', async () => {
+  it('serializes two M10-to-M12 runners and records each version once', async () => {
     await migrateM10Only();
     const other = createMigrationDatabase(migrationConfig(migrationEnv));
     try {
@@ -686,8 +742,8 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       ]);
       expect(
         results.map((result) => result.length).sort((a, b) => a - b),
-      ).toEqual([0, 1]);
-      expect(await ledger()).toHaveLength(3);
+      ).toEqual([0, 2]);
+      expect(await ledger()).toHaveLength(4);
       expect((await getMigrationStatus(db)).migrations[2].applied).toBe(true);
     } finally {
       await other.destroy();
@@ -726,7 +782,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
         )
       ).rows[0].present,
     ).toBe(false);
-    expect(await migrateToLatest(db)).toHaveLength(1);
+    expect(await migrateToLatest(db)).toHaveLength(2);
   });
 
   it('rejects an M11 ledger entry with only M10 schema', async () => {
@@ -793,8 +849,8 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       : mutation) {
       await sql.raw(statement).execute(db); // Static SQL in isolated disposable database.
     }
-    await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M11');
-    await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M11');
+    await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M12');
+    await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M12');
     expect(await ledger()).toEqual(history);
   });
 
@@ -1039,11 +1095,12 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     ]);
     expect(await assetSnapshot()).toEqual(originalAsset);
     expect(await ledger()).toEqual(originalLedger);
-    expect(await migrateToLatest(db)).toHaveLength(2);
+    expect(await migrateToLatest(db)).toHaveLength(3);
     expect((await ledger()).map((row) => row.name)).toEqual([
       INITIAL_ASSET_MIGRATION,
       AUTHENTICATION_MIGRATION,
       ASSET_OWNERSHIP_MIGRATION,
+      ASSET_LIFECYCLE_MIGRATION,
     ]);
   });
 
@@ -1063,8 +1120,8 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       ]);
       expect(
         results.map((result) => result.length).sort((a, b) => a - b),
-      ).toEqual([0, 3]);
-      expect(await ledger()).toHaveLength(3);
+      ).toEqual([0, 4]);
+      expect(await ledger()).toHaveLength(4);
     } finally {
       await other.destroy();
     }
@@ -1221,17 +1278,17 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       'kysely_migration_lock',
     ]);
     expect(await ledger()).toEqual([]);
-    expect(await migrateToLatest(db)).toHaveLength(3);
+    expect(await migrateToLatest(db)).toHaveLength(4);
   });
 
   it('refuses M11 ownership rollback without changing history, schema or assets', async () => {
     await legacyFixture();
-    await migrateToLatest(db, true);
+    await migrateM11Only(true);
     const original = await managedSnapshot();
     const migrator = new Migrator({
       db,
       migrationTableSchema: 'public',
-      provider: createMigrationProvider(),
+      provider: m11Provider(),
     });
     expect((await migrator.migrateDown()).error).toMatchObject({
       message: expect.stringContaining(
@@ -1321,4 +1378,235 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     ]);
     expect(await assetSnapshot()).toEqual(original);
   });
+
+  it('upgrades an M11 installation without changing historical rows or ledger entries', async () => {
+    await legacyFixture();
+    await migrateM11Only(true);
+    const before = await assetSnapshot();
+    const ledgerBefore = await ledger();
+    expect(await migrateToLatest(db)).toEqual([
+      {
+        migrationName: ASSET_LIFECYCLE_MIGRATION,
+        direction: 'Up',
+        status: 'Success',
+      },
+    ]);
+    expect(await assetSnapshot()).toEqual(before);
+    expect((await ledger()).slice(0, 3)).toEqual(ledgerBefore);
+    expect(
+      (
+        await sql<{
+          owner_id: string | null;
+          lifecycle_version: string;
+          trashed_at: Date | null;
+        }>`select owner_id, lifecycle_version::text as lifecycle_version,
+      trashed_at from public.asset order by id`.execute(db)
+      ).rows,
+    ).toEqual([
+      { owner_id: null, lifecycle_version: '0', trashed_at: null },
+      { owner_id: null, lifecycle_version: '0', trashed_at: null },
+    ]);
+    expect(
+      await sql<{ count: number }>`select count(*)::integer as count
+      from public.storage_binding`.execute(db),
+    ).toMatchObject({ rows: [{ count: 0 }] });
+  });
+
+  it('serializes concurrent M11-to-M12 upgrades without duplicating the journal or ledger entry', async () => {
+    await migrateM11Only();
+    const other = createMigrationDatabase(migrationConfig(migrationEnv));
+    try {
+      const results = await Promise.all([
+        migrateToLatest(db),
+        migrateToLatest(other),
+      ]);
+      expect(
+        results.map((result) => result.length).sort((a, b) => a - b),
+      ).toEqual([0, 1]);
+      expect((await ledger()).map((row) => row.name)).toEqual([
+        INITIAL_ASSET_MIGRATION,
+        AUTHENTICATION_MIGRATION,
+        ASSET_OWNERSHIP_MIGRATION,
+        ASSET_LIFECYCLE_MIGRATION,
+      ]);
+      expect(await tables()).toContain('asset_deletion');
+    } finally {
+      await other.destroy();
+    }
+  });
+
+  it('refuses automatic M12 rollback without changing the schema or journal', async () => {
+    await migrateToLatest(db);
+    const before = await managedSnapshot();
+    const result = await new Migrator({
+      db,
+      migrationTableSchema: 'public',
+      provider: createMigrationProvider(),
+    }).migrateDown();
+    expect(result.error).toMatchObject({
+      message: expect.stringContaining(
+        'Asset lifecycle migration cannot be rolled back automatically',
+      ),
+    });
+    expect(await managedSnapshot()).toEqual(before);
+  });
+
+  it('rejects premature lifecycle relations and a false M12 ledger entry', async () => {
+    await migrateM11Only();
+    await sql`create table public.asset_deletion (id integer)`.execute(db);
+    await expect(getMigrationStatus(db)).rejects.toThrow('reserved M12');
+    await sql`drop table public.asset_deletion`.execute(db);
+    await sql`insert into public.kysely_migration (name, timestamp)
+      values (${ASSET_LIFECYCLE_MIGRATION}, ${new Date(Date.now() + 60_000).toISOString()})`.execute(
+      db,
+    );
+    await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M12');
+  });
+
+  it('starts with an empty binding, preserves an adopted synthetic row, and rejects invalid singleton rows', async () => {
+    await migrateToLatest(db);
+    const binding = {
+      storage: '00000000-0000-4000-8000-000000000101',
+      originals: '00000000-0000-4000-8000-000000000102',
+      thumbnails: '00000000-0000-4000-8000-000000000103',
+    };
+    const rows = await sql<{ count: number }>`select count(*)::integer as count
+      from public.storage_binding`.execute(db);
+    expect(rows.rows[0].count).toBe(0);
+    await expect(
+      sql`insert into public.storage_binding values
+      (false, ${binding.storage}::uuid, ${binding.originals}::uuid,
+       ${binding.thumbnails}::uuid, 1)`.execute(db),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      sql`insert into public.storage_binding values
+      (true, ${binding.storage}::uuid, ${binding.originals}::uuid,
+       ${binding.originals}::uuid, 1)`.execute(db),
+    ).rejects.toMatchObject({ code: '23514' });
+    await sql`insert into public.storage_binding values
+      (true, ${binding.storage}::uuid, ${binding.originals}::uuid,
+       ${binding.thumbnails}::uuid, 1)`.execute(db);
+    const before = await sql`select * from public.storage_binding`.execute(db);
+    expect(await migrateToLatest(db)).toEqual([]);
+    expect(
+      (await sql`select * from public.storage_binding`.execute(db)).rows,
+    ).toEqual(before.rows);
+    await expect(
+      sql`insert into public.storage_binding values
+      (true, ${binding.storage}::uuid, ${binding.originals}::uuid,
+       ${binding.thumbnails}::uuid, 1)`.execute(db),
+    ).rejects.toMatchObject({ code: '23505' });
+  });
+
+  it.each([false, true])(
+    'refuses HTTP readiness on M12 even with binding populated=%s',
+    async (populated) => {
+      await migrateToLatest(db);
+      if (populated)
+        await sql`insert into public.storage_binding values
+      (true, '00000000-0000-4000-8000-000000000101',
+       '00000000-0000-4000-8000-000000000102',
+       '00000000-0000-4000-8000-000000000103', 1)`.execute(db);
+      await expect(
+        new AuthSessionService(
+          { db } as DatabaseService,
+          new PasswordService(),
+        ).assertReady(),
+      ).rejects.toThrow('Application schema is not ready');
+      let startupOutput = '';
+      try {
+        await execFile(
+          process.execPath,
+          [resolve(process.cwd(), 'dist/main.js')],
+          {
+            cwd: process.cwd(),
+            timeout: 8000,
+            env: {
+              PATH: process.env.PATH,
+              NODE_ENV: 'test',
+              HOST: '127.0.0.1',
+              PORT: '34567',
+              APP_ORIGIN: 'http://127.0.0.1:34567',
+              STORAGE_ROOT: '/tmp/saefr-m12b-unused',
+              POSTGRES_HOST: '127.0.0.1',
+              POSTGRES_PORT: String(
+                testConfig().getOrThrow<number>('POSTGRES_PORT'),
+              ),
+              POSTGRES_DB: databaseName,
+              POSTGRES_USER: testConfig().getOrThrow<string>('POSTGRES_USER'),
+              POSTGRES_PASSWORD:
+                testConfig().getOrThrow<string>('POSTGRES_PASSWORD'),
+            },
+          },
+        );
+        throw new Error('M12B application unexpectedly started');
+      } catch (error: unknown) {
+        if (!(error instanceof Error) || !('code' in error) || error.code !== 1)
+          throw error;
+        const stdout =
+          'stdout' in error && typeof error.stdout === 'string'
+            ? error.stdout
+            : '';
+        const stderr =
+          'stderr' in error && typeof error.stderr === 'string'
+            ? error.stderr
+            : '';
+        startupOutput = stdout + stderr;
+      }
+      expect(startupOutput).toContain('Application startup failed');
+      expect(startupOutput).not.toContain('saefr-m12b-unused');
+      expect(startupOutput).not.toContain(
+        testConfig().getOrThrow<string>('POSTGRES_PASSWORD'),
+      );
+    },
+  );
+
+  it.each([
+    'alter table public.asset alter column lifecycle_version drop default',
+    'drop index public.asset_active_owner_created_id_idx',
+    'alter table public.asset_deletion drop constraint asset_deletion_claim_pair_check',
+    'alter table public.asset_deletion drop constraint asset_deletion_owner_id_fkey',
+    'drop index public.asset_deletion_pending_owner_requested_id_idx',
+    'alter table public.asset_deletion alter column requested_at set default now()',
+    'alter table public.storage_binding drop constraint storage_binding_roles_check',
+    'alter table public.storage_binding enable row level security',
+  ])(
+    'rejects incompatible M12 schema without repair: %s',
+    async (statement) => {
+      await migrateToLatest(db);
+      const history = await ledger();
+      await sql.raw(statement).execute(db);
+      await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M12');
+      await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M12');
+      expect(await ledger()).toEqual(history);
+    },
+  );
+
+  it.each([
+    ['asset_deletion', 'asset_id'],
+    ['storage_binding', 'singleton'],
+  ])(
+    'rejects a standalone unique index and CHECK masquerading as the %s primary key',
+    async (table, column) => {
+      await migrateToLatest(db);
+      expect((await getMigrationStatus(db)).installation).toBe('managed');
+      const history = await ledger();
+      const primaryKey = `${table}_pkey`;
+      // Static identifiers from this test's two-case table, never user input.
+      await sql
+        .raw(`alter table public.${table} drop constraint ${primaryKey}`)
+        .execute(db);
+      await sql
+        .raw(
+          `alter table public.${table} add constraint ${primaryKey} check (true)`,
+        )
+        .execute(db);
+      await sql
+        .raw(`create unique index ${primaryKey} on public.${table} (${column})`)
+        .execute(db);
+      await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M12');
+      await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M12');
+      expect(await ledger()).toEqual(history);
+    },
+  );
 });

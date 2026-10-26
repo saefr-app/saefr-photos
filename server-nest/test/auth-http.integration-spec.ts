@@ -22,8 +22,8 @@ import { createHttpAdapter } from '../src/http-adapter.js';
 import { PasswordService } from '../src/auth/password.service.js';
 import { OperatorAccountsService } from '../src/users/operator-accounts.service.js';
 import { DatabaseService } from '../src/database/database.service.js';
-import { migrateToLatest } from '../src/database/migrations/migration-runner.js';
 import { testConfig } from './helpers/integration-database.js';
+import { migrateToM11 } from './helpers/m11-schema.js';
 
 const origin = 'http://127.0.0.1:3000';
 const password = 'isolated security test phrase';
@@ -62,7 +62,7 @@ describe('M10 browser authentication on disposable PostgreSQL and a real localho
       POSTGRES_PASSWORD: config.getOrThrow<string>('POSTGRES_PASSWORD'),
     });
     database = new DatabaseService(isolated);
-    await migrateToLatest(database.db);
+    await migrateToM11(database.db);
     passwordHash = await new PasswordService().hash(password);
     process.env.POSTGRES_HOST = '127.0.0.1';
     process.env.POSTGRES_PORT = String(

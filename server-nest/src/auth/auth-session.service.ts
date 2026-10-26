@@ -10,6 +10,7 @@ import { sql } from 'kysely';
 import { DatabaseService } from '../database/database.service.js';
 import { getMigrationStatus } from '../database/migrations/migration-runner.js';
 import {
+  ASSET_LIFECYCLE_MIGRATION,
   INITIAL_ASSET_MIGRATION,
   AUTHENTICATION_MIGRATION,
   ASSET_OWNERSHIP_MIGRATION,
@@ -53,6 +54,15 @@ export class AuthSessionService {
 
   async assertReady(): Promise<void> {
     const status = await getMigrationStatus(this.database.db);
+    // M12B has no binding-aware storage provider. Refuse HTTP startup on any
+    // M12 schema, even if a singleton was populated synthetically.
+    if (
+      status.migrations.some(
+        (version) =>
+          version.name === ASSET_LIFECYCLE_MIGRATION && version.applied,
+      )
+    )
+      throw new Error('Application schema is not ready');
     if (
       ![
         INITIAL_ASSET_MIGRATION,
