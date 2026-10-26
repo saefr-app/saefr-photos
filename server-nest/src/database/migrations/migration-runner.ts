@@ -11,6 +11,11 @@ import {
   inspectOwnershipAsset,
 } from './asset-ownership-schema.js';
 import {
+  assertLifecycleAbsent,
+  inspectLifecycleSchema,
+} from './asset-lifecycle-schema.js';
+import {
+  ASSET_LIFECYCLE_MIGRATION,
   ASSET_OWNERSHIP_MIGRATION,
   AUTHENTICATION_MIGRATION,
   createMigrationProvider,
@@ -187,6 +192,9 @@ async function inspectMigrationStatus<DB>(db: Kysely<DB>) {
   const ownsAssets = applied.some(
     (migration) => migration.name === ASSET_OWNERSHIP_MIGRATION,
   );
+  const hasLifecycle = applied.some(
+    (migration) => migration.name === ASSET_LIFECYCLE_MIGRATION,
+  );
   if (
     applied.some((migration) => migration.name === AUTHENTICATION_MIGRATION)
   ) {
@@ -194,9 +202,11 @@ async function inspectMigrationStatus<DB>(db: Kysely<DB>) {
   } else {
     await assertAuthAbsent(db);
   }
-  const assetExists = ownsAssets
-    ? await inspectOwnershipAsset(db)
-    : await inspectLegacyAsset(db);
+  const assetExists = hasLifecycle
+    ? await inspectLifecycleSchema(db)
+    : ownsAssets
+      ? await inspectOwnershipAsset(db)
+      : await inspectLegacyAsset(db);
   if (!assetExists && applied.length) {
     throw new MigrationSafetyError(
       'Migration history exists but public.asset is missing. Refusing to recreate a previously migrated table.',
@@ -214,6 +224,7 @@ async function inspectMigrationStatus<DB>(db: Kysely<DB>) {
       );
   }
   if (!ownsAssets) await assertOwnershipAbsent(db);
+  if (!hasLifecycle) await assertLifecycleAbsent(db);
   return {
     installation: applied.length ? 'managed' : assetExists ? 'legacy' : 'fresh',
     migrations: available.map((name, index) => ({

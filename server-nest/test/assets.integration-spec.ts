@@ -1,6 +1,6 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
-import { sql } from 'kysely';
+import { sql, type Insertable } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { AssetsRepository } from '../src/assets/assets.repository.js';
@@ -33,7 +33,7 @@ const actor: AuthenticatedActor = {
 function asset(
   id: string,
   createdAt = new Date('2026-10-16T12:00:00.000Z'),
-): Omit<AssetTable, 'owner_id'> & { owner_id: string } {
+): Insertable<AssetTable> & { owner_id: string } {
   return {
     id,
     filename: `${id}.jpg`,
@@ -129,6 +129,16 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
         is_nullable: 'NO',
       },
       { column_name: 'owner_id', data_type: 'uuid', is_nullable: 'YES' },
+      {
+        column_name: 'trashed_at',
+        data_type: 'timestamp with time zone',
+        is_nullable: 'YES',
+      },
+      {
+        column_name: 'lifecycle_version',
+        data_type: 'bigint',
+        is_nullable: 'NO',
+      },
     ]);
   });
 

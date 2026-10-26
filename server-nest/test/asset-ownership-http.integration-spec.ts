@@ -31,7 +31,7 @@ import { AssetsRepository } from '../src/assets/assets.repository.js';
 import { LocalStorageService } from '../src/storage/local-storage.service.js';
 import { DatabaseService } from '../src/database/database.service.js';
 import { createHttpAdapter } from '../src/http-adapter.js';
-import { migrateToLatest } from '../src/database/migrations/migration-runner.js';
+import { migrateToM11 } from './helpers/m11-schema.js';
 import {
   AUTHENTICATION_MIGRATION,
   createMigrationProvider,
@@ -198,7 +198,7 @@ describe('M11 production owner-scoped HTTP boundary over real sockets', () => {
     await sql`insert into asset (id,filename,mime_type,size,storage_path,created_at) values (${assets.legacy}::uuid,'legacy-synthetic.jpg','image/jpeg',12,'synthetic-inert-path',now())`.execute(
       database.db,
     );
-    await migrateToLatest(database.db);
+    await migrateToM11(database.db);
     for (const key of envKeys.filter((key) => key.startsWith('POSTGRES_')))
       process.env[key] = String(dbConfig(databaseName).getOrThrow(key));
     process.env.APP_ORIGIN = origin;
@@ -766,7 +766,7 @@ describe('M11 production owner-scoped HTTP boundary over real sockets', () => {
             expires_at: expiresAt,
           })
           .execute();
-        if (state !== 'M10-only') await migrateToLatest(db.db);
+        if (state !== 'M10-only') await migrateToM11(db.db);
         if (state !== 'M10-only')
           await db.db
             .insertInto('asset')

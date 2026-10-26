@@ -21,9 +21,9 @@ import { AuthSessionService } from '../src/auth/auth-session.service.js';
 import { PasswordService } from '../src/auth/password.service.js';
 import { createHttpAdapter } from '../src/http-adapter.js';
 import { DatabaseService } from '../src/database/database.service.js';
-import { migrateToLatest } from '../src/database/migrations/migration-runner.js';
 import { UsersService } from '../src/users/users.service.js';
 import { testConfig } from './helpers/integration-database.js';
+import { migrateToM11 } from './helpers/m11-schema.js';
 
 const origin = 'http://127.0.0.1:3000';
 const password = 'isolated admin test phrase';
@@ -64,7 +64,7 @@ describe('M10 administrator routes on disposable PostgreSQL and localhost HTTP',
       POSTGRES_PASSWORD: config.getOrThrow<string>('POSTGRES_PASSWORD'),
     });
     database = new DatabaseService(isolated);
-    await migrateToLatest(database.db);
+    await migrateToM11(database.db);
     passwordHash = await new PasswordService().hash(password);
     process.env.POSTGRES_HOST = '127.0.0.1';
     process.env.POSTGRES_PORT = String(
