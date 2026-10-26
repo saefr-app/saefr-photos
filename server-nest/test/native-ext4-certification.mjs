@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { copyFile, writeFile } from 'node:fs/promises';
+import { copyFile, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 
@@ -54,6 +55,58 @@ if (process.argv[2] === '--missing') {
     'Missing mount exposing copied marker: physical/location mismatch detected',
   );
   process.exit(0);
+}
+if (process.argv[2] === '--crash-after-link') {
+  const root = process.env.SAEFR_NATIVE_FIRST;
+  const assetId = process.env.SAEFR_NATIVE_CRASH_ASSET;
+  assert.ok(root && assetId);
+  const originalMarker = parseStorageMarker(
+    await readFile(join(root, 'originals', '.saefr-storage.json')),
+  );
+  const thumbnailMarker = parseStorageMarker(
+    await readFile(join(root, 'thumbnails', '.saefr-storage.json')),
+  );
+  const config = new ConfigService({
+    STORAGE_ROOT: root,
+    STORAGE_ID: originalMarker.storage_id,
+    STORAGE_ORIGINALS_BINDING_ID: originalMarker.binding_id,
+    STORAGE_THUMBNAILS_BINDING_ID: thumbnailMarker.binding_id,
+    STORAGE_ORIGINALS_PROFILE: 'linux-ext4-v1',
+    STORAGE_THUMBNAILS_PROFILE: 'linux-ext4-v1',
+  });
+  const database = {
+    db: {
+      selectFrom: () => ({
+        selectAll: () => ({
+          where: () => ({
+            executeTakeFirst: async () => ({
+              singleton: true,
+              storage_id: originalMarker.storage_id,
+              originals_binding_id: originalMarker.binding_id,
+              thumbnails_binding_id: thumbnailMarker.binding_id,
+              storage_layout_version: 1,
+            }),
+          }),
+        }),
+      }),
+    },
+  };
+  class PausingProvider extends LocalStorageProvider {
+    async syncDirectory() {
+      process.stdout.write('LINKED\n');
+      await new Promise(() => setInterval(() => undefined, 1_000));
+    }
+  }
+  const provider = new PausingProvider(
+    new StorageBindingVerifier(database, config, observer),
+    config,
+  );
+  await provider.publish(
+    { role: 'originals', assetId, extension: '.jpg' },
+    randomUUID(),
+    Readable.from([Buffer.from('synthetic crash fixture')]),
+  );
+  throw new Error('Expected parent to terminate the paused publication');
 }
 
 const first = process.env.SAEFR_NATIVE_FIRST;
@@ -208,4 +261,62 @@ assert.deepEqual(
 );
 console.log(
   'Native ext4: identity, marker, exact-byte upload, media reads and provider removal checks passed',
+);
+
+// Kill a real process after link creation but before directory-sync
+// acknowledgement. The surviving target is uncertain, not evidence of a
+// completed durable upload. Only this disposable fixture is then removed.
+const crashAsset = randomUUID();
+const child = spawn(process.execPath, [process.argv[1], '--crash-after-link'], {
+  env: {
+    ...process.env,
+    SAEFR_NATIVE_CRASH_ASSET: crashAsset,
+  },
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+const childClosed = new Promise((resolve) =>
+  child.once('close', (code, signal) => resolve({ code, signal })),
+);
+try {
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error('Crash probe timed out')),
+      10_000,
+    );
+    let output = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+      if (output.includes('LINKED\n')) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    child.once('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once('exit', (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Crash probe exited before link: ${code}`));
+    });
+  });
+} finally {
+  child.kill('SIGKILL');
+}
+const killed = await childClosed;
+assert.equal(killed.signal, 'SIGKILL');
+const crashTarget = join(originals, `${crashAsset}.jpg`);
+assert.deepEqual(
+  await readFile(crashTarget),
+  Buffer.from('synthetic crash fixture'),
+);
+const stageFiles = (await readdir(originals)).filter(
+  (name) => name.startsWith(`.${crashAsset}.`) && name.endsWith('.uploading'),
+);
+assert.equal(stageFiles.length, 1);
+await rm(crashTarget);
+await rm(join(originals, stageFiles[0]));
+console.log(
+  'Process-kill after link retained possible media for explicit reconciliation',
 );
