@@ -9,6 +9,10 @@ import { sql, type Kysely, type Transaction } from 'kysely';
 import { DatabaseService } from '../database/database.service.js';
 import type { Database } from '../database/database.types.js';
 import {
+  assertHistoricalInventory,
+  type HistoricalAdoptionManifest,
+} from './storage-adoption-inventory.js';
+import {
   StorageBindingVerifier,
   type PhysicalStorageObserver,
 } from './storage-binding.service.js';
@@ -49,11 +53,10 @@ async function assertEmptyDatabase(
 }
 
 /**
- * Explicit fresh-install primitive, deliberately not registered as an HTTP
- * provider or operator command. It cannot run until a separately approved
- * native observer, deployment procedure and certification exist. Existing
- * installations require reviewed inventory/adoption, which this class does
- * not implement. Partial marker creation is intentionally never repaired.
+ * Explicit fresh-install primitive and read-only historical inventory gate.
+ * Neither runs during HTTP startup. Historical adoption still requires a
+ * separate, reviewed marker/anchor commit procedure; this class cannot turn
+ * an inventory pass into adoption. Partial markers are never repaired.
  */
 export class StorageBindingProvisioner {
   constructor(
@@ -107,6 +110,45 @@ export class StorageBindingProvisioner {
       await directory.sync();
     } finally {
       await directory.close();
+    }
+  }
+
+  async assessHistoricalAdoption(
+    manifest: HistoricalAdoptionManifest,
+  ): Promise<void> {
+    try {
+      const occupied = await sql<{ occupied: boolean }>`select
+        exists(select 1 from public.asset_deletion) or
+        exists(select 1 from public.storage_binding) as occupied`.execute(
+        this.database.db,
+      );
+      if (occupied.rows[0]?.occupied !== false) throw unavailable();
+      const rows = await this.database.db
+        .selectFrom('asset')
+        .select(['id', 'mime_type', 'size', 'storage_path'])
+        .orderBy('id')
+        .execute();
+      await assertHistoricalInventory(
+        this.config.getOrThrow<string>('STORAGE_ROOT'),
+        rows,
+        manifest,
+      );
+      await Promise.all(
+        (['originals', 'thumbnails'] as const).map((role) =>
+          this.observer.observeIdentity(role, this.location(role)),
+        ),
+      );
+      // Recheck population after the filesystem pass. Offline writer fencing
+      // remains a mandatory operator prerequisite, not something this read-only
+      // method can establish by looking at a single database snapshot.
+      const after = await this.database.db
+        .selectFrom('asset')
+        .select(['id', 'mime_type', 'size', 'storage_path'])
+        .orderBy('id')
+        .execute();
+      if (JSON.stringify(rows) !== JSON.stringify(after)) throw unavailable();
+    } catch {
+      throw unavailable();
     }
   }
 

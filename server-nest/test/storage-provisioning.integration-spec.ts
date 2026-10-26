@@ -1,4 +1,12 @@
-import { mkdtemp, mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -137,6 +145,98 @@ describe('synthetic fresh storage provisioning on disposable PostgreSQL', () => 
         },
       );
     } finally {
+      await rm(setup.root, { recursive: true, force: true });
+    }
+  });
+
+  it('assesses a synthetic historical population without adopting or changing metadata', async () => {
+    const setup = await fixture();
+    const userId = randomUUID();
+    const assetId = randomUUID();
+    const original = Buffer.from('synthetic historical original');
+    const thumbnail = Buffer.from('synthetic historical thumbnail');
+    const digest = (bytes: Buffer) =>
+      createHash('sha256').update(bytes).digest('hex');
+    const storedPath = `/reviewed/legacy/originals/${assetId}.jpg`;
+    try {
+      await writeFile(
+        join(setup.root, 'originals', `${assetId}.jpg`),
+        original,
+      );
+      await writeFile(
+        join(setup.root, 'thumbnails', `${assetId}.jpg`),
+        thumbnail,
+      );
+      await database.db
+        .insertInto('app_user')
+        .values({
+          id: userId,
+          username: `adoption-${userId.slice(0, 8)}`,
+          password_hash: 'synthetic-unused-hash',
+          role: 'user',
+          status: 'active',
+          password_change_required: false,
+          created_at: new Date(),
+          updated_at: new Date(),
+        })
+        .execute();
+      await database.db
+        .insertInto('asset')
+        .values({
+          id: assetId,
+          owner_id: userId,
+          filename: 'synthetic.jpg',
+          mime_type: 'image/jpeg',
+          size: original.length,
+          storage_path: storedPath,
+          created_at: new Date(),
+        })
+        .execute();
+      const before = await database.db
+        .selectFrom('asset')
+        .selectAll()
+        .where('id', '=', assetId)
+        .executeTakeFirstOrThrow();
+      const manifest = {
+        version: 1 as const,
+        recordedOriginalRoots: ['/reviewed/legacy/originals'],
+        assets: [
+          {
+            id: assetId,
+            originalSha256: digest(original),
+            thumbnailSha256: digest(thumbnail),
+          },
+        ],
+      };
+
+      await expect(
+        setup.provisioner.assessHistoricalAdoption(manifest),
+      ).resolves.toBeUndefined();
+      await expect(
+        setup.provisioner.assessHistoricalAdoption({
+          ...manifest,
+          recordedOriginalRoots: ['/wrong/originals'],
+        }),
+      ).rejects.toMatchObject({ status: 503 });
+      expect(
+        await database.db
+          .selectFrom('asset')
+          .selectAll()
+          .where('id', '=', assetId)
+          .executeTakeFirstOrThrow(),
+      ).toEqual(before);
+      expect(
+        await database.db.selectFrom('storage_binding').selectAll().execute(),
+      ).toEqual([]);
+      expect(await readdir(join(setup.root, 'originals'))).toEqual([
+        `${assetId}.jpg`,
+      ]);
+    } finally {
+      await database.db.deleteFrom('asset').where('id', '=', assetId).execute();
+      await database.db
+        .deleteFrom('app_user')
+        .where('id', '=', userId)
+        .execute();
       await rm(setup.root, { recursive: true, force: true });
     }
   });
