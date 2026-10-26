@@ -8,6 +8,9 @@ on:
       - ".github/workflows/m12c-native-ext4.yml"
       - "server-nest/native/**"
       - "server-nest/src/storage/**"
+      - "server-nest/src/assets/**"
+      - "server-nest/test/storage-native-http.integration-spec.ts"
+      - "server-nest/test/run-integration.mjs"
       - "server-nest/test/native-ext4-certification.*"
 
 permissions:

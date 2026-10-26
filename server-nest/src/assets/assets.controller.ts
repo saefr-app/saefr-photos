@@ -138,6 +138,7 @@ export class AssetsController {
   })
   async upload(@Req() request: ActorRequest): Promise<AssetResponseDto> {
     const actor = requireAssetActor(request);
+    await this.assetsService.assertUploadReady();
     if (!request.isMultipart()) {
       throw new BadRequestException('Image file is required');
     }

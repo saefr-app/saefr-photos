@@ -38,6 +38,7 @@ export interface ImageUpload {
 
 /** The active M11 implementation and the gated M12 provider share this surface. */
 export interface AssetImageStorage {
+  assertReady?(): Promise<void>;
   saveImage(
     assetId: string,
     mimeType: string,
@@ -62,6 +63,10 @@ export class AssetsService {
     private readonly assetsRepository: AssetsRepository,
     @Inject(LocalStorageService) private readonly storage: AssetImageStorage,
   ) {}
+
+  async assertUploadReady(): Promise<void> {
+    await this.storage.assertReady?.();
+  }
 
   async upload(
     actor: AuthenticatedActor,

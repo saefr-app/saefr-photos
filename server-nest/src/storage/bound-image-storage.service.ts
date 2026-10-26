@@ -42,6 +42,10 @@ export class BoundImageStorageService implements AssetImageStorage {
     private readonly config: ConfigService,
   ) {}
 
+  async assertReady(): Promise<void> {
+    await this.provider.verifyBinding();
+  }
+
   async saveImage(
     assetId: string,
     mimeType: string,

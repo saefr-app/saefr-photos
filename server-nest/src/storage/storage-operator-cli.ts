@@ -23,13 +23,22 @@ function required(name: string): string {
 }
 
 async function main(): Promise<void> {
-  const [action, databaseFlag, rootFlag] = process.argv.slice(2);
+  const [action, databaseFlag, rootFlag, stoppedFlag, backupFlag] =
+    process.argv.slice(2);
   const databaseName = required('POSTGRES_DB');
   const root = required('ROOT');
+  const adopting = action === 'adopt-historical';
+  const recovering = action === 'reestablish-location';
   if (
-    action !== 'provision-fresh' ||
+    (action !== 'provision-fresh' && !adopting && !recovering) ||
     databaseFlag !== `--confirm-database=${databaseName}` ||
     rootFlag !== `--confirm-root=${root}` ||
+    (adopting || recovering
+      ? stoppedFlag !== `--confirm-services-stopped=${databaseName}` ||
+        backupFlag !==
+          `--confirm-backup-record=${required('BACKUP_RECORD_SHA256')}`
+      : stoppedFlag !== undefined || backupFlag !== undefined) ||
+    process.argv.length !== (adopting || recovering ? 7 : 5) ||
     !isAbsolute(root) ||
     !process.stdin.isTTY ||
     !process.stdout.isTTY
@@ -41,11 +50,17 @@ async function main(): Promise<void> {
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error('Storage operator configuration unavailable');
 
-  const identity = {
-    storageId: randomUUID(),
-    originalsBindingId: randomUUID(),
-    thumbnailsBindingId: randomUUID(),
-  };
+  const identity = recovering
+    ? {
+        storageId: required('STORAGE_ID'),
+        originalsBindingId: required('ORIGINALS_BINDING_ID'),
+        thumbnailsBindingId: required('THUMBNAILS_BINDING_ID'),
+      }
+    : {
+        storageId: randomUUID(),
+        originalsBindingId: randomUUID(),
+        thumbnailsBindingId: randomUUID(),
+      };
   const config = new ConfigService({
     POSTGRES_HOST: required('POSTGRES_HOST'),
     POSTGRES_PORT: port,
@@ -77,14 +92,29 @@ async function main(): Promise<void> {
       throw new Error('Storage schema unavailable');
     const observer = new LinuxPhysicalStorageObserver();
     const verifier = new StorageBindingVerifier(database, config, observer);
-    await new StorageBindingProvisioner(
+    const provisioner = new StorageBindingProvisioner(
       database,
       config,
       observer,
       observer,
       verifier,
-    ).provisionFresh(identity);
-    console.log(JSON.stringify(identity));
+    );
+    if (adopting) {
+      await provisioner.adoptHistorical(
+        required('EVIDENCE_PATH'),
+        identity,
+        required('BACKUP_RECORD_SHA256'),
+      );
+    } else if (recovering) {
+      await provisioner.reestablishControlledLocation(
+        required('EVIDENCE_PATH'),
+        required('BACKUP_RECORD_SHA256'),
+      );
+    } else {
+      await provisioner.provisionFresh(identity);
+    }
+    if (!recovering) console.log(JSON.stringify(identity));
+    else console.log('Storage location verified');
   } finally {
     await database.onModuleDestroy();
   }

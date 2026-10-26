@@ -32,6 +32,14 @@ export interface HistoricalAdoptionManifest {
   }[];
 }
 
+export interface HistoricalAdoptionEvidence {
+  readonly version: 1;
+  readonly databaseName: string;
+  readonly storageRoot: string;
+  readonly backupRecordSha256: string;
+  readonly manifest: HistoricalAdoptionManifest;
+}
+
 function unavailable(): Error {
   return new Error('Historical storage pairing unavailable');
 }
@@ -47,6 +55,89 @@ async function pin(location: string): Promise<FileHandle> {
     location,
     constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
   );
+}
+
+/** Operator-owned, protected record outside both role roots and their parent. */
+export async function readProtectedAdoptionEvidence(
+  filename: string,
+  databaseName: string,
+  storageRoot: string,
+  expectedBackupRecordSha256: string,
+): Promise<HistoricalAdoptionManifest> {
+  const bytes = await readProtectedOperatorRecord(filename, storageRoot);
+  try {
+    const evidence = JSON.parse(
+      bytes.toString('utf8'),
+    ) as Partial<HistoricalAdoptionEvidence>;
+    if (
+      !evidence ||
+      Object.keys(evidence).sort().join(',') !==
+        'backupRecordSha256,databaseName,manifest,storageRoot,version' ||
+      evidence.version !== 1 ||
+      evidence.databaseName !== databaseName ||
+      evidence.storageRoot !== posix.resolve(storageRoot) ||
+      typeof evidence.backupRecordSha256 !== 'string' ||
+      !DIGEST.test(evidence.backupRecordSha256) ||
+      evidence.backupRecordSha256 !== expectedBackupRecordSha256 ||
+      !evidence.manifest
+    )
+      throw unavailable();
+    return evidence.manifest;
+  } catch {
+    throw unavailable();
+  }
+}
+
+/** Read a stopped-service operator record outside the entire media root. */
+export async function readProtectedOperatorRecord(
+  filename: string,
+  storageRoot: string,
+): Promise<Buffer> {
+  let handle: FileHandle | undefined;
+  try {
+    const root = posix.resolve(storageRoot);
+    if (
+      process.platform !== 'linux' ||
+      !posix.isAbsolute(filename) ||
+      posix.normalize(filename) !== filename ||
+      (filename !== root && filename.startsWith(`${root}/`))
+    )
+      throw unavailable();
+    const parent = posix.dirname(filename);
+    const directory = await pin(parent);
+    try {
+      handle = await open(
+        `/proc/self/fd/${directory.fd}/${posix.basename(filename)}`,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+    } finally {
+      await directory.close();
+    }
+    const before = await handle.stat();
+    if (
+      !before.isFile() ||
+      before.size < 1 ||
+      before.size > 128 * 1024 * 1024 ||
+      (before.mode & 0o777) !== 0o600 ||
+      before.uid !== process.getuid?.()
+    )
+      throw unavailable();
+    const bytes = await handle.readFile();
+    const after = await handle.stat();
+    if (
+      before.dev !== after.dev ||
+      before.ino !== after.ino ||
+      before.size !== after.size ||
+      before.mtimeMs !== after.mtimeMs ||
+      bytes.length !== before.size
+    )
+      throw unavailable();
+    return bytes;
+  } catch {
+    throw unavailable();
+  } finally {
+    await handle?.close();
+  }
 }
 
 async function hashFile(

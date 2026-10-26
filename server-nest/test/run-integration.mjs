@@ -68,8 +68,30 @@ async function waitForDatabase() {
 }
 
 try {
-  if (process.argv.slice(2).some((argument) => argument !== '--migrations')) {
-    throw new Error('Only the --migrations test filter is supported');
+  const migrationsOnly = process.argv.includes('--migrations');
+  const nativeOnly = process.argv.includes('--native-storage-http');
+  if (
+    process.argv
+      .slice(2)
+      .some(
+        (argument) =>
+          argument !== '--migrations' && argument !== '--native-storage-http',
+      ) ||
+    (migrationsOnly && nativeOnly)
+  ) {
+    throw new Error('Unsupported integration test filter');
+  }
+  if (
+    nativeOnly &&
+    (process.env.GITHUB_ACTIONS !== 'true' ||
+      process.env.EXPECTED_RUNNER_ENVIRONMENT !== 'github-hosted' ||
+      process.env.EXPECTED_RUNNER_OS !== 'Linux' ||
+      !process.env.RUNNER_TEMP ||
+      !process.env.SAEFR_NATIVE_FIRST?.startsWith(
+        `${process.env.RUNNER_TEMP}/saefr-m12c-ext4.`,
+      ))
+  ) {
+    throw new Error('Disposable native ext4 runner required');
   }
   // No Compose project, named volume, bind mount, or application .env is used.
   const result = await docker(
@@ -119,9 +141,11 @@ try {
         'run',
         '--config',
         'vitest.config.integration.ts',
-        ...(process.argv.includes('--migrations')
+        ...(migrationsOnly
           ? ['test/migrations.integration-spec.ts']
-          : []),
+          : nativeOnly
+            ? ['test/storage-native-http.integration-spec.ts']
+            : []),
       ],
       {
         stdio: 'inherit',

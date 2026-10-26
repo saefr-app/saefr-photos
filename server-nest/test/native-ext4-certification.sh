@@ -69,6 +69,11 @@ SAEFR_NATIVE_FIRST="${first_mount}" SAEFR_NATIVE_SECOND="${second_mount}" \
   SAEFR_NATIVE_UNSUPPORTED=/dev/shm \
   node test/native-ext4-certification.mjs
 
+# Exercise the actual Nest HTTP composition against an independently owned,
+# disposable PostgreSQL 18 container while both verified ext4 roles are live.
+SAEFR_NATIVE_FIRST="${first_mount}" \
+  node test/run-integration.mjs --native-storage-http
+
 # The intended runtime container must work without root or capabilities.
 docker run --rm --network none --read-only --cap-drop ALL \
   --security-opt no-new-privileges --user "$(id -u):$(id -g)" \

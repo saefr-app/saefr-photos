@@ -10,12 +10,17 @@ import { DatabaseService } from '../database/database.service.js';
 import type { Database } from '../database/database.types.js';
 import {
   assertHistoricalInventory,
+  readProtectedAdoptionEvidence,
   type HistoricalAdoptionManifest,
 } from './storage-adoption-inventory.js';
 import {
   StorageBindingVerifier,
   type PhysicalStorageObserver,
 } from './storage-binding.service.js';
+import {
+  assertControlledRecoveryDatabase,
+  assertControlledRecoveryInventory,
+} from './storage-recovery-inventory.js';
 import {
   locationFingerprint,
   roleLocation,
@@ -53,10 +58,9 @@ async function assertEmptyDatabase(
 }
 
 /**
- * Explicit fresh-install primitive and read-only historical inventory gate.
- * Neither runs during HTTP startup. Historical adoption still requires a
- * separate, reviewed marker/anchor commit procedure; this class cannot turn
- * an inventory pass into adoption. Partial markers are never repaired.
+ * Explicit stopped-service operator primitives. None runs at HTTP startup;
+ * preflight alone cannot create binding authority. Partial markers are never
+ * repaired automatically.
  */
 export class StorageBindingProvisioner {
   constructor(
@@ -87,26 +91,32 @@ export class StorageBindingProvisioner {
   }
 
   private async writeMarker(role: StorageRole, bytes: Buffer): Promise<void> {
-    const marker = posix.join(this.location(role), '.saefr-storage.json');
-    const handle = await open(
-      marker,
-      constants.O_CREAT |
-        constants.O_EXCL |
-        constants.O_WRONLY |
-        constants.O_NOFOLLOW,
-      0o600,
-    );
-    try {
-      await handle.writeFile(bytes);
-      await handle.sync();
-    } finally {
-      await handle.close();
+    const location = this.location(role);
+    let cursor = '/';
+    for (const part of location.split('/').filter(Boolean)) {
+      cursor = posix.join(cursor, part);
+      const info = await lstat(cursor);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw unavailable();
     }
     const directory = await open(
-      this.location(role),
+      location,
       constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
     );
     try {
+      const handle = await open(
+        `/proc/self/fd/${directory.fd}/.saefr-storage.json`,
+        constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_WRONLY |
+          constants.O_NOFOLLOW,
+        0o600,
+      );
+      try {
+        await handle.writeFile(bytes);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
       await directory.sync();
     } finally {
       await directory.close();
@@ -147,6 +157,213 @@ export class StorageBindingProvisioner {
         .orderBy('id')
         .execute();
       if (JSON.stringify(rows) !== JSON.stringify(after)) throw unavailable();
+    } catch {
+      throw unavailable();
+    }
+  }
+
+  /**
+   * Stopped-service operator primitive. The caller must independently fence
+   * every writer/executor and approve the protected pairing and backup record.
+   * Partial markers are intentionally left untouched on any failure.
+   */
+  async adoptHistorical(
+    evidencePath: string,
+    identity: FreshStorageIdentity,
+    expectedBackupRecordSha256: string,
+  ): Promise<void> {
+    try {
+      if (
+        identity.storageId !== this.config.get<string>('STORAGE_ID') ||
+        identity.originalsBindingId !==
+          this.config.get<string>('STORAGE_ORIGINALS_BINDING_ID') ||
+        identity.thumbnailsBindingId !==
+          this.config.get<string>('STORAGE_THUMBNAILS_BINDING_ID') ||
+        identity.originalsBindingId === identity.thumbnailsBindingId ||
+        this.config.get<string>('STORAGE_ORIGINALS_PROFILE') !==
+          'linux-ext4-v1' ||
+        this.config.get<string>('STORAGE_THUMBNAILS_PROFILE') !==
+          'linux-ext4-v1'
+      )
+        throw unavailable();
+      const manifest = await readProtectedAdoptionEvidence(
+        evidencePath,
+        this.config.getOrThrow<string>('POSTGRES_DB'),
+        this.config.getOrThrow<string>('STORAGE_ROOT'),
+        expectedBackupRecordSha256,
+      );
+      const before = await this.database.db
+        .selectFrom('asset')
+        .select(['id', 'mime_type', 'size', 'storage_path'])
+        .orderBy('id')
+        .execute();
+      await this.assessHistoricalAdoption(manifest);
+
+      const roles = ['originals', 'thumbnails'] as const;
+      const observations = await Promise.all(
+        roles.map((role) =>
+          this.observer.observeIdentity(role, this.location(role)),
+        ),
+      );
+      const markers = roles.map((role, index) =>
+        serializeStorageMarker({
+          version: 2,
+          storage_id: identity.storageId,
+          binding_id:
+            role === 'originals'
+              ? identity.originalsBindingId
+              : identity.thumbnailsBindingId,
+          role,
+          physical_identity: {
+            ...observations[index],
+            location_sha256: locationFingerprint(this.location(role), role),
+          },
+        }),
+      );
+      await this.writeMarker('originals', markers[0]);
+      await this.writeMarker('thumbnails', markers[1]);
+      for (const [index, role] of roles.entries()) {
+        const current = await this.observer.observeIdentity(
+          role,
+          this.location(role),
+        );
+        const witnessed = await this.markerObserver.observe(
+          role,
+          this.location(role),
+        );
+        if (
+          !Buffer.from(witnessed.markerBytes).equals(markers[index]) ||
+          JSON.stringify(current) !== JSON.stringify(observations[index]) ||
+          JSON.stringify(witnessed.identity) !== JSON.stringify(current)
+        )
+          throw unavailable();
+      }
+
+      let inserted = false;
+      try {
+        await this.database.db.transaction().execute(async (transaction) => {
+          await sql`lock table public.asset, public.asset_deletion,
+            public.storage_binding in share mode`.execute(transaction);
+          const occupied = await sql<{ occupied: boolean }>`select
+            exists(select 1 from public.asset_deletion) or
+            exists(select 1 from public.storage_binding) as occupied`.execute(
+            transaction,
+          );
+          if (occupied.rows[0]?.occupied !== false) throw unavailable();
+          const current = await transaction
+            .selectFrom('asset')
+            .select(['id', 'mime_type', 'size', 'storage_path'])
+            .orderBy('id')
+            .execute();
+          if (JSON.stringify(current) !== JSON.stringify(before))
+            throw unavailable();
+          await transaction
+            .insertInto('storage_binding')
+            .values({
+              singleton: true,
+              storage_id: identity.storageId,
+              originals_binding_id: identity.originalsBindingId,
+              thumbnails_binding_id: identity.thumbnailsBindingId,
+              storage_layout_version: 1,
+            })
+            .execute();
+          inserted = true;
+        });
+      } catch {
+        if (!inserted) throw unavailable();
+        const committed = await this.database.db
+          .selectFrom('storage_binding')
+          .selectAll()
+          .where('singleton', '=', true)
+          .executeTakeFirst();
+        if (
+          committed?.storage_id !== identity.storageId ||
+          committed.originals_binding_id !== identity.originalsBindingId ||
+          committed.thumbnails_binding_id !== identity.thumbnailsBindingId ||
+          committed.storage_layout_version !== 1
+        )
+          throw unavailable();
+      }
+      await this.verifier.assertVerified();
+    } catch {
+      throw unavailable();
+    }
+  }
+
+  /**
+   * Re-establish physical role markers after a reviewed relocation or matched
+   * database/media restoration. This never changes logical IDs, asset rows or
+   * deletion receipts. Both destination markers must be absent; partial work
+   * is deliberately left for explicit operator recovery.
+   */
+  async reestablishControlledLocation(
+    evidencePath: string,
+    expectedBackupRecordSha256: string,
+  ): Promise<void> {
+    try {
+      const root = this.config.getOrThrow<string>('STORAGE_ROOT');
+      const evidence = await assertControlledRecoveryInventory(
+        this.database,
+        root,
+        this.config.getOrThrow<string>('POSTGRES_DB'),
+        evidencePath,
+        expectedBackupRecordSha256,
+      );
+      if (
+        evidence.binding.storageId !== this.config.get<string>('STORAGE_ID') ||
+        evidence.binding.originalsBindingId !==
+          this.config.get<string>('STORAGE_ORIGINALS_BINDING_ID') ||
+        evidence.binding.thumbnailsBindingId !==
+          this.config.get<string>('STORAGE_THUMBNAILS_BINDING_ID') ||
+        evidence.binding.originalsBindingId ===
+          evidence.binding.thumbnailsBindingId ||
+        this.config.get<string>('STORAGE_ORIGINALS_PROFILE') !==
+          'linux-ext4-v1' ||
+        this.config.get<string>('STORAGE_THUMBNAILS_PROFILE') !==
+          'linux-ext4-v1'
+      )
+        throw unavailable();
+      const roles = ['originals', 'thumbnails'] as const;
+      const observed = await Promise.all(
+        roles.map((role) =>
+          this.observer.observeIdentity(role, this.location(role)),
+        ),
+      );
+      const markers = roles.map((role, index) =>
+        serializeStorageMarker({
+          version: 2,
+          storage_id: evidence.binding.storageId,
+          binding_id:
+            role === 'originals'
+              ? evidence.binding.originalsBindingId
+              : evidence.binding.thumbnailsBindingId,
+          role,
+          physical_identity: {
+            ...observed[index],
+            location_sha256: locationFingerprint(this.location(role), role),
+          },
+        }),
+      );
+      await this.writeMarker('originals', markers[0]);
+      await this.writeMarker('thumbnails', markers[1]);
+      await assertControlledRecoveryDatabase(this.database, evidence);
+      for (const [index, role] of roles.entries()) {
+        const current = await this.observer.observeIdentity(
+          role,
+          this.location(role),
+        );
+        const witnessed = await this.markerObserver.observe(
+          role,
+          this.location(role),
+        );
+        if (
+          JSON.stringify(current) !== JSON.stringify(observed[index]) ||
+          JSON.stringify(witnessed.identity) !== JSON.stringify(current) ||
+          !Buffer.from(witnessed.markerBytes).equals(markers[index])
+        )
+          throw unavailable();
+      }
+      await this.verifier.assertVerified();
     } catch {
       throw unavailable();
     }

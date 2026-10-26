@@ -28,6 +28,8 @@
     "db:status": "npm run build && node dist/database/migrations/cli.js status",
     "db:migrate": "npm run build && node dist/database/migrations/cli.js up",
     "storage:provision-fresh": "npm run build && node dist/storage/storage-operator-cli.js provision-fresh",
+    "storage:adopt-historical": "npm run build && node dist/storage/storage-operator-cli.js adopt-historical",
+    "storage:reestablish-location": "npm run build && node dist/storage/storage-operator-cli.js reestablish-location",
     "auth:bootstrap": "npm run build && node dist/users/operator-cli.js bootstrap",
     "auth:recover": "npm run build && node dist/users/operator-cli.js recover",
     "auth:prune-sessions": "npm run build && node dist/users/operator-cli.js prune"

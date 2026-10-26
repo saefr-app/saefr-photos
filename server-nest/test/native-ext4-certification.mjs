@@ -56,7 +56,8 @@ if (process.argv[2] === '--missing') {
   );
   process.exit(0);
 }
-if (process.argv[2] === '--crash-after-link') {
+if (process.argv[2]?.startsWith('--crash-')) {
+  const crashPoint = process.argv[2];
   const root = process.env.SAEFR_NATIVE_FIRST;
   const assetId = process.env.SAEFR_NATIVE_CRASH_ASSET;
   assert.ok(root && assetId);
@@ -92,9 +93,19 @@ if (process.argv[2] === '--crash-after-link') {
     },
   };
   class PausingProvider extends LocalStorageProvider {
-    async syncDirectory() {
-      process.stdout.write('LINKED\n');
-      await new Promise(() => setInterval(() => undefined, 1_000));
+    async syncFile(handle) {
+      if (crashPoint === '--crash-during-staging') {
+        process.stdout.write('STAGED\n');
+        await new Promise(() => setInterval(() => undefined, 1_000));
+      }
+      return super.syncFile(handle);
+    }
+    async syncDirectory(role, directory) {
+      if (crashPoint === '--crash-after-link') {
+        process.stdout.write('LINKED\n');
+        await new Promise(() => setInterval(() => undefined, 1_000));
+      }
+      return super.syncDirectory(role, directory);
     }
   }
   const provider = new PausingProvider(
@@ -106,6 +117,10 @@ if (process.argv[2] === '--crash-after-link') {
     randomUUID(),
     Readable.from([Buffer.from('synthetic crash fixture')]),
   );
+  if (crashPoint === '--crash-after-persistence') {
+    process.stdout.write('DURABLE\n');
+    await new Promise(() => setInterval(() => undefined, 1_000));
+  }
   throw new Error('Expected parent to terminate the paused publication');
 }
 
@@ -263,60 +278,67 @@ console.log(
   'Native ext4: identity, marker, exact-byte upload, media reads and provider removal checks passed',
 );
 
-// Kill a real process after link creation but before directory-sync
-// acknowledgement. The surviving target is uncertain, not evidence of a
-// completed durable upload. Only this disposable fixture is then removed.
-const crashAsset = randomUUID();
-const child = spawn(process.execPath, [process.argv[1], '--crash-after-link'], {
-  env: {
-    ...process.env,
-    SAEFR_NATIVE_CRASH_ASSET: crashAsset,
-  },
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-const childClosed = new Promise((resolve) =>
-  child.once('close', (code, signal) => resolve({ code, signal })),
-);
-try {
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(
-      () => reject(new Error('Crash probe timed out')),
-      10_000,
-    );
-    let output = '';
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => {
-      output += chunk;
-      if (output.includes('LINKED\n')) {
-        clearTimeout(timeout);
-        resolve();
-      }
-    });
-    child.once('error', (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.once('exit', (code) => {
-      clearTimeout(timeout);
-      reject(new Error(`Crash probe exited before link: ${code}`));
-    });
+// Three real-process kill points use disposable ext4 fixture files only.
+// Neither this nor remount proves power-loss durability.
+async function processKillProbe(point, signal, targetExpected) {
+  const crashAsset = randomUUID();
+  const child = spawn(process.execPath, [process.argv[1], point], {
+    env: { ...process.env, SAEFR_NATIVE_CRASH_ASSET: crashAsset },
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-} finally {
-  child.kill('SIGKILL');
+  const childClosed = new Promise((resolve) =>
+    child.once('close', (code, terminatedBy) =>
+      resolve({ code, terminatedBy }),
+    ),
+  );
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error('Crash probe timed out')),
+        10_000,
+      );
+      let output = '';
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        output += chunk;
+        if (output.includes(`${signal}\n`)) {
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
+      child.once('error', (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.once('exit', (code) => {
+        clearTimeout(timeout);
+        reject(new Error(`Crash probe exited before ${signal}: ${code}`));
+      });
+    });
+  } finally {
+    child.kill('SIGKILL');
+  }
+  const killed = await childClosed;
+  assert.equal(killed.terminatedBy, 'SIGKILL');
+  const crashTarget = join(originals, `${crashAsset}.jpg`);
+  const stageFiles = (await readdir(originals)).filter(
+    (name) => name.startsWith(`.${crashAsset}.`) && name.endsWith('.uploading'),
+  );
+  assert.equal(stageFiles.length, 1);
+  if (targetExpected) {
+    assert.deepEqual(
+      await readFile(crashTarget),
+      Buffer.from('synthetic crash fixture'),
+    );
+    await rm(crashTarget);
+  } else {
+    assert.ok(!(await readdir(originals)).includes(`${crashAsset}.jpg`));
+  }
+  await rm(join(originals, stageFiles[0]));
+  console.log(
+    `Process-kill at ${point}: target ${targetExpected ? 'retained' : 'absent'}, staging retained`,
+  );
 }
-const killed = await childClosed;
-assert.equal(killed.signal, 'SIGKILL');
-const crashTarget = join(originals, `${crashAsset}.jpg`);
-assert.deepEqual(
-  await readFile(crashTarget),
-  Buffer.from('synthetic crash fixture'),
-);
-const stageFiles = (await readdir(originals)).filter(
-  (name) => name.startsWith(`.${crashAsset}.`) && name.endsWith('.uploading'),
-);
-assert.equal(stageFiles.length, 1);
-await rm(crashTarget);
-await rm(join(originals, stageFiles[0]));
-console.log(
-  'Process-kill after link retained possible media for explicit reconciliation',
-);
+await processKillProbe('--crash-during-staging', 'STAGED', false);
+await processKillProbe('--crash-after-link', 'LINKED', true);
+await processKillProbe('--crash-after-persistence', 'DURABLE', true);
