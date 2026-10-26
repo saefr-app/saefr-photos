@@ -24,6 +24,8 @@ The first hosted attempt, [run 40366246544](https://github.com/saefr-app/saefr-p
 
 The next [hosted run 40366451003](https://github.com/saefr-app/saefr-photos/actions/runs/40366451003) reached the build on the GitHub-hosted runner but failed because its Ubuntu 24.04 userspace Linux headers lack the `fsuuid2`/`FS_IOC_GETFSUUID` definitions. No image creation or mount began. A small compatibility declaration now uses the exact [upstream Linux UAPI layout and ioctl number](https://github.com/torvalds/linux/blob/master/include/uapi/linux/fs.h); runtime support remains mandatory and will be tested by the next run. The helper compiled locally with this declaration; that is not ext4 certification.
 
+[Run 40366688407](https://github.com/saefr-app/saefr-photos/actions/runs/40366688407) compiled the helper and mounted two new ext4 images on GitHub-hosted Ubuntu image `ubuntu24 20261023.334.3`, kernel `6.17.0-1022-azure`, e2fsprogs `1.47.0`. The native assertions for stable reopening, different directories on the same ext4 filesystem, distinct ext4 filesystem UUIDs, marker reading and copied-marker identity mismatch all passed. The run then failed an invalid test assumption: `/tmp` on that runner was ext4, so it did not reject as an unsupported filesystem. The script now verifies `/dev/shm` is tmpfs before using it for that assertion. The non-root container and missing-mount checks were **not reached** in this run; no full certification is claimed. The script's cleanup trap ran but did not previously log an unmount confirmation; future runs now do.
+
 ## Files changed
 
 - `docs/decisions/0006-asset-lifecycle-and-deletion.md`, `docs/development/milestone-12-spec.md`: approved marker-v2 architecture amendments transferred exactly.

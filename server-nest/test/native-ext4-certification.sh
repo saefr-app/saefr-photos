@@ -25,6 +25,7 @@ cleanup() {
   if ! mountpoint -q -- "${second_mount}" &&
      ! mountpoint -q -- "${first_mount}"; then
     rm -rf -- "${scratch}"
+    echo 'Disposable ext4 mounts and image files removed'
   else
     echo 'Disposable test mount remains attached; manual runner cleanup required' >&2
     status=1
@@ -62,8 +63,10 @@ findmnt -n -o FSTYPE,OPTIONS --target "${second_mount}"
   [[ "$(findmnt -n -o FSTYPE --target "${first_mount}")" == ext4 ]] || exit 2
 }
 [[ "$(findmnt -n -o FSTYPE --target "${second_mount}")" == ext4 ]] || exit 2
+[[ "$(findmnt -n -o FSTYPE --target /dev/shm)" == tmpfs ]] || exit 2
 
 SAEFR_NATIVE_FIRST="${first_mount}" SAEFR_NATIVE_SECOND="${second_mount}" \
+  SAEFR_NATIVE_UNSUPPORTED=/dev/shm \
   node test/native-ext4-certification.mjs
 
 # The intended runtime container must work without root or capabilities.

@@ -81,7 +81,9 @@ assert.notEqual(
   copiedMarker.physical_identity.location_sha256,
   locationFingerprint(replacement, 'originals'),
 );
-await assert.rejects(observer.observeIdentity('originals', '/tmp'));
+await assert.rejects(
+  observer.observeIdentity('originals', process.env.SAEFR_NATIVE_UNSUPPORTED),
+);
 console.log(
   'Native ext4: stable reopen, separate roles, independent filesystem, copied marker and unsupported filesystem checks passed',
 );
