@@ -4,6 +4,7 @@ import { pipeline } from 'node:stream/promises';
 import {
   BadRequestException,
   Controller,
+  Delete,
   Get,
   Header,
   HttpException,
@@ -37,11 +38,17 @@ import { AssetsService, type AssetContent } from './assets.service.js';
 import {
   AssetPageDto,
   AssetResponseDto,
+  DeletionReceiptDto,
   LifecycleTransitionDto,
   PendingDeletionPageDto,
   TrashPageDto,
 } from './dto/asset-response.dto.js';
-import { lifecycleEtag, parsePageQuery } from './asset-lifecycle-contract.js';
+import {
+  isCanonicalUuid,
+  lifecycleEtag,
+  parsePageQuery,
+} from './asset-lifecycle-contract.js';
+import { AssetDeletionService } from './asset-deletion.service.js';
 import { MAX_UPLOAD_BYTES } from '../storage/image-limits.js';
 import type { ActorRequest } from '../auth/request-auth.js';
 import type { AuthenticatedActor } from '../auth/auth-session.service.js';
@@ -95,7 +102,48 @@ function uploadError(error: unknown): unknown {
 @ApiTags('assets')
 @Controller('api/v1/assets')
 export class AssetsController {
-  constructor(private readonly assetsService: AssetsService) {}
+  constructor(
+    private readonly assetsService: AssetsService,
+    private readonly deletionService: AssetDeletionService,
+  ) {}
+
+  private deletionId(value: string): string {
+    if (!isCanonicalUuid(value))
+      throw new BadRequestException('Invalid request');
+    return value;
+  }
+
+  private emptyBody(request: ActorRequest): void {
+    if (request.body !== undefined)
+      throw new BadRequestException('Invalid request');
+  }
+
+  private async deletionAttempt(
+    request: ActorRequest,
+    reply: FastifyReply,
+    work: (
+      signal: AbortSignal,
+    ) => Promise<{ code: 200 | 202; receipt: DeletionReceiptDto }>,
+  ): Promise<DeletionReceiptDto> {
+    const controller = new AbortController();
+    const disconnect = () => {
+      if (!reply.raw.writableEnded) controller.abort();
+    };
+    request.raw.once('aborted', disconnect);
+    reply.raw.once('close', disconnect);
+    try {
+      const result = await work(controller.signal);
+      reply.code(result.code);
+      reply.header(
+        'Location',
+        `/api/v1/assets/deletions/${result.receipt.asset_id}`,
+      );
+      return result.receipt;
+    } finally {
+      request.raw.off('aborted', disconnect);
+      reply.raw.off('close', disconnect);
+    }
+  }
 
   @Get()
   @ApiOperation({
@@ -139,6 +187,41 @@ export class AssetsController {
     return this.assetsService.findPendingDeletions(
       actor,
       parsePageQuery(request.raw.url ?? '', actor.userId, 'pending-deletions'),
+    );
+  }
+
+  @Get('deletions/:assetId')
+  @ApiOperation({ summary: 'Read an owned permanent-deletion receipt' })
+  @ApiParam({ name: 'assetId', format: 'uuid' })
+  @ApiOkResponse({ type: DeletionReceiptDto })
+  @ApiResponse({ status: 404, description: 'Deletion receipt not found.' })
+  async deletionStatus(
+    @Req() request: ActorRequest,
+    @Param('assetId') assetId: string,
+  ): Promise<DeletionReceiptDto> {
+    return this.deletionService.status(
+      requireAssetActor(request),
+      this.deletionId(assetId),
+    );
+  }
+
+  @Post('deletions/:assetId/retry')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Explicitly retry an accepted permanent deletion' })
+  @ApiParam({ name: 'assetId', format: 'uuid' })
+  @ApiOkResponse({ type: DeletionReceiptDto })
+  @ApiResponse({ status: 202, type: DeletionReceiptDto })
+  @ApiResponse({ status: 404, description: 'Deletion receipt not found.' })
+  @ApiResponse({ status: 503, description: 'Execution unavailable.' })
+  async retryDeletion(
+    @Req() request: ActorRequest,
+    @Param('assetId') assetId: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<DeletionReceiptDto> {
+    const actor = requireAssetActor(request);
+    this.emptyBody(request);
+    return this.deletionAttempt(request, reply, (signal) =>
+      this.deletionService.retry(actor, this.deletionId(assetId), signal),
     );
   }
 
@@ -352,6 +435,32 @@ export class AssetsController {
     );
     reply.header('ETag', lifecycleEtag(assetId, result.lifecycle_version));
     return result;
+  }
+
+  @Delete(':assetId')
+  @ApiOperation({ summary: 'Permanently delete an owned trashed asset' })
+  @ApiParam({ name: 'assetId', format: 'uuid' })
+  @ApiOkResponse({ type: DeletionReceiptDto })
+  @ApiResponse({ status: 202, type: DeletionReceiptDto })
+  @ApiResponse({ status: 409, description: 'Asset must be in Trash.' })
+  @ApiResponse({ status: 412, description: 'Lifecycle version conflict.' })
+  @ApiResponse({ status: 428, description: 'Lifecycle version required.' })
+  @ApiResponse({ status: 503, description: 'Storage or database unavailable.' })
+  async deleteAsset(
+    @Req() request: ActorRequest,
+    @Param('assetId') assetId: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<DeletionReceiptDto> {
+    const actor = requireAssetActor(request);
+    this.emptyBody(request);
+    return this.deletionAttempt(request, reply, (signal) =>
+      this.deletionService.accept(
+        actor,
+        this.deletionId(assetId),
+        request.headers['if-match'],
+        signal,
+      ),
+    );
   }
 
   @Get(':assetId/original')

@@ -49,7 +49,7 @@ The approved Phase 11A architecture is in [ADR 0005](decisions/0005-asset-owners
 
 ### M12 — Manual asset lifecycle [FEATURE BRANCH IN PROGRESS]
 
-The merged M12B database foundation and reviewed M12C storage compatibility checkpoint precede M12D's feature-branch pagination, owner-only Trash/Restore and Trash thumbnail behavior. M12E.1 implements the internal, journal-authorized deletion executor without activating destructive HTTP routes. Independent destructive-core review, M12E.2 public acceptance/status/retry integration and M12F remain required before the milestone PR can leave draft. The [M12 specification](development/milestone-12-spec.md), [M12D report](development/milestone-12d-report.md) and [M12E.1 report](development/milestone-12e1-report.md) distinguish implemented behavior from remaining work. Real-data migration, storage adoption and deployment remain separately gated.
+The merged M12B database foundation and reviewed M12C storage compatibility checkpoint precede M12D's feature-branch pagination, owner-only Trash/Restore and Trash thumbnail behavior. M12E.1's journal-authorized deletion executor passed independent review. M12E.2 adds feature-branch permanent-deletion acceptance, owner receipt status and explicit retry; independent HTTP security review and M12F milestone verification remain gates before the draft PR can be merged. The [M12 specification](development/milestone-12-spec.md), [M12D report](development/milestone-12d-report.md), [M12E.1 report](development/milestone-12e1-report.md) and [M12E.2 report](development/milestone-12e2-report.md) distinguish implemented behavior from remaining work. Real-data migration, storage adoption and deployment remain separately gated.
 
 ## Future app + ML tracks
 

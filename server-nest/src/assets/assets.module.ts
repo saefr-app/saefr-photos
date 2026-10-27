@@ -8,6 +8,8 @@ import { AssetsRepository } from './assets.repository.js';
 import { AssetsService } from './assets.service.js';
 import { AssetDeletionRepository } from './asset-deletion.repository.js';
 import { AssetDeletionExecutor } from './asset-deletion.executor.js';
+import { AssetDeletionAcceptanceRepository } from './asset-deletion-acceptance.repository.js';
+import { AssetDeletionService } from './asset-deletion.service.js';
 
 @Module({
   imports: [DatabaseModule, StorageModule],
@@ -17,6 +19,8 @@ import { AssetDeletionExecutor } from './asset-deletion.executor.js';
     AssetsRepository,
     AssetDeletionRepository,
     AssetDeletionExecutor,
+    AssetDeletionAcceptanceRepository,
+    AssetDeletionService,
   ],
 })
 export class AssetsModule {}

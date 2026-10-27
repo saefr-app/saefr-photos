@@ -29,6 +29,7 @@ const PUBLIC_MESSAGES: Readonly<Record<number, readonly string[]>> = {
     'Session limit reached',
     'Username already exists',
     'Account cannot be disabled',
+    'Asset must be in Trash',
   ],
   412: ['Lifecycle version conflict'],
   428: ['Lifecycle version required'],
@@ -70,6 +71,8 @@ const ROUTES = new Set([
   '/api/v1/assets/upload',
   '/api/v1/assets/trash',
   '/api/v1/assets/deletions',
+  '/api/v1/assets/deletions/:assetId',
+  '/api/v1/assets/deletions/:assetId/retry',
   '/api/v1/assets/trash/:assetId/thumbnail',
   '/api/v1/assets/:assetId/trash',
   '/api/v1/assets/:assetId/restore',
@@ -118,7 +121,9 @@ export class SafeHttpExceptionFilter implements ExceptionFilter {
       const route = request.routeOptions?.url;
       const safeRoute = route && ROUTES.has(route) ? route : 'unknown route';
       const method =
-        request.method === 'GET' || request.method === 'POST'
+        request.method === 'GET' ||
+        request.method === 'POST' ||
+        request.method === 'DELETE'
           ? request.method
           : 'OTHER';
 

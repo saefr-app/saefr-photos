@@ -77,6 +77,23 @@ export class PendingDeletionDto {
   last_error_code!: string | null;
 }
 
+export class DeletionReceiptDto {
+  @ApiProperty({ format: 'uuid' })
+  asset_id!: string;
+
+  @ApiProperty({ enum: ['pending', 'completed'] })
+  status!: 'pending' | 'completed';
+
+  @ApiProperty({ format: 'date-time', example: '2026-10-26T10:15:00.123456Z' })
+  requested_at!: string;
+
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' })
+  completed_at!: string | null;
+
+  @ApiProperty({ nullable: true, type: String })
+  last_error_code!: string | null;
+}
+
 export class PendingDeletionPageDto {
   @ApiProperty({ type: [PendingDeletionDto] })
   items!: PendingDeletionDto[];

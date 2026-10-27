@@ -51,6 +51,7 @@ describe.skipIf(!nativeFixture)(
     let ownerCookie: string;
     let ownerCsrf: string;
     let foreignCookie: string;
+    let foreignCsrf: string;
     let foreignSessionId: string;
     let restrictedCookie: string;
     let original: Buffer;
@@ -277,6 +278,7 @@ describe.skipIf(!nativeFixture)(
             .execute();
         } else if (name === 'foreign') {
           foreignCookie = cookie;
+          foreignCsrf = issued.actor.csrfToken.toString('base64url');
           foreignSessionId = issued.actor.sessionId;
         } else restrictedCookie = cookie;
       }
@@ -651,5 +653,194 @@ describe.skipIf(!nativeFixture)(
       await rm(join(root, 'originals', `${unexpectedId}.jpg`));
       await rm(neighbor);
     }, 60_000);
+
+    it('accepts owner HTTP deletion on ext4 and resumes a partial removal by explicit retry', async () => {
+      if (!root) throw new Error('Native root unavailable');
+      const makeAsset = async (id: string, thumbnail = true) => {
+        await writeFile(join(root, 'originals', `${id}.jpg`), original);
+        if (thumbnail)
+          await writeFile(join(root, 'thumbnails', `${id}.jpg`), original);
+        await database.db
+          .insertInto('asset')
+          .values({
+            id,
+            owner_id: ownerId,
+            filename: 'synthetic-delete.jpg',
+            mime_type: 'image/jpeg',
+            size: original.length,
+            storage_path: join(root, 'originals', `${id}.jpg`),
+            created_at: new Date(),
+          })
+          .execute();
+        const trash = await fetch(`${baseUrl}/api/v1/assets/${id}/trash`, {
+          method: 'POST',
+          headers: {
+            ...headers(ownerCookie, true),
+            'If-Match': `"asset-lifecycle:${id}:0"`,
+          },
+        });
+        expect(trash.status).toBe(200);
+      };
+      const id = randomUUID();
+      await makeAsset(id);
+      const path = `${baseUrl}/api/v1/assets/${id}`;
+      const tag = `"asset-lifecycle:${id}:1"`;
+      await database.db
+        .updateTable('auth_session')
+        .set({ expires_at: new Date(Date.now() + 3_600_000) })
+        .where('id', '=', foreignSessionId)
+        .execute();
+      expect(
+        (
+          await fetch(path, {
+            method: 'DELETE',
+            headers: {
+              ...headers(foreignCookie, true),
+              'X-CSRF-Token': foreignCsrf,
+              'If-Match': tag,
+            },
+          })
+        ).status,
+      ).toBe(404);
+      expect(await readFile(join(root, 'originals', `${id}.jpg`))).toEqual(
+        original,
+      );
+      const deleted = await fetch(path, {
+        method: 'DELETE',
+        headers: {
+          ...headers(ownerCookie, true),
+          'If-Match': tag,
+        },
+      });
+      expect(deleted.status).toBe(200);
+      expect(deleted.headers.get('location')).toBe(
+        `/api/v1/assets/deletions/${id}`,
+      );
+      const receipt = (await deleted.json()) as { status: string };
+      expect(receipt.status).toBe('completed');
+      await expect(
+        readFile(join(root, 'originals', `${id}.jpg`)),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(
+        readFile(join(root, 'thumbnails', `${id}.jpg`)),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      const repeated = await fetch(path, {
+        method: 'DELETE',
+        headers: {
+          ...headers(ownerCookie, true),
+          'If-Match': tag,
+        },
+      });
+      expect(repeated.status).toBe(200);
+      expect(await repeated.json()).toEqual(receipt);
+
+      const unbound = randomUUID();
+      await makeAsset(unbound);
+      const adopted = await database.db
+        .selectFrom('storage_binding')
+        .selectAll()
+        .where('singleton', '=', true)
+        .executeTakeFirstOrThrow();
+      await database.db
+        .updateTable('storage_binding')
+        .set({ storage_id: randomUUID() })
+        .where('singleton', '=', true)
+        .execute();
+      try {
+        const refusal = await fetch(`${baseUrl}/api/v1/assets/${unbound}`, {
+          method: 'DELETE',
+          headers: {
+            ...headers(ownerCookie, true),
+            'If-Match': `"asset-lifecycle:${unbound}:1"`,
+          },
+        });
+        expect(refusal.status).toBe(503);
+        expect(
+          await readFile(join(root, 'originals', `${unbound}.jpg`)),
+        ).toEqual(original);
+        expect(
+          await readFile(join(root, 'thumbnails', `${unbound}.jpg`)),
+        ).toEqual(original);
+        expect(
+          await database.db
+            .selectFrom('asset_deletion')
+            .select('asset_id')
+            .where('asset_id', '=', unbound)
+            .executeTakeFirst(),
+        ).toBeUndefined();
+      } finally {
+        await database.db
+          .updateTable('storage_binding')
+          .set({ storage_id: adopted.storage_id })
+          .where('singleton', '=', true)
+          .execute();
+      }
+      await database.db
+        .deleteFrom('storage_binding')
+        .where('singleton', '=', true)
+        .execute();
+      try {
+        expect(
+          (
+            await fetch(`${baseUrl}/api/v1/assets/${unbound}`, {
+              method: 'DELETE',
+              headers: {
+                ...headers(ownerCookie, true),
+                'If-Match': `"asset-lifecycle:${unbound}:1"`,
+              },
+            })
+          ).status,
+        ).toBe(503);
+        expect(
+          await readFile(join(root, 'originals', `${unbound}.jpg`)),
+        ).toEqual(original);
+      } finally {
+        await database.db
+          .insertInto('storage_binding')
+          .values(adopted)
+          .execute();
+      }
+
+      const partial = randomUUID();
+      await makeAsset(partial, false);
+      const neighbor = join(root, 'thumbnails', `${randomUUID()}.jpg`);
+      await writeFile(neighbor, original);
+      const thumbnail = join(root, 'thumbnails', `${partial}.jpg`);
+      await symlink(neighbor, thumbnail);
+      try {
+        const pending = await fetch(`${baseUrl}/api/v1/assets/${partial}`, {
+          method: 'DELETE',
+          headers: {
+            ...headers(ownerCookie, true),
+            'If-Match': `"asset-lifecycle:${partial}:1"`,
+          },
+        });
+        expect(pending.status).toBe(202);
+        await expect(
+          readFile(join(root, 'originals', `${partial}.jpg`)),
+        ).rejects.toMatchObject({ code: 'ENOENT' });
+        expect(await readFile(neighbor)).toEqual(original);
+        await rm(thumbnail);
+        await writeFile(thumbnail, original);
+        const retry = await fetch(
+          `${baseUrl}/api/v1/assets/deletions/${partial}/retry`,
+          {
+            method: 'POST',
+            headers: headers(ownerCookie, true),
+          },
+        );
+        expect(retry.status).toBe(200);
+        expect(((await retry.json()) as { status: string }).status).toBe(
+          'completed',
+        );
+        await expect(readFile(thumbnail)).rejects.toMatchObject({
+          code: 'ENOENT',
+        });
+        expect(await readFile(neighbor)).toEqual(original);
+      } finally {
+        await rm(thumbnail, { force: true });
+        await rm(neighbor, { force: true });
+      }
+    });
   },
 );
