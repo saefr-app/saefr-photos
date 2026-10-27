@@ -583,6 +583,27 @@ describe.skipIf(!nativeFixture)(
           expect(
             (await journal.findForOwner(id, ownerId))?.completed_at,
           ).toBeNull();
+          if (point === 'BEFORE_REMOVE') {
+            expect(
+              await readFile(join(root, 'originals', `${id}.jpg`), 'utf8'),
+            ).toBe('synthetic original');
+            expect(
+              await readFile(join(root, 'thumbnails', `${id}.jpg`), 'utf8'),
+            ).toBe('synthetic thumbnail');
+          } else {
+            await expect(
+              readFile(join(root, 'originals', `${id}.jpg`)),
+            ).rejects.toMatchObject({ code: 'ENOENT' });
+            if (point === 'ORIGINAL_DONE') {
+              expect(
+                await readFile(join(root, 'thumbnails', `${id}.jpg`), 'utf8'),
+              ).toBe('synthetic thumbnail');
+            } else {
+              await expect(
+                readFile(join(root, 'thumbnails', `${id}.jpg`)),
+              ).rejects.toMatchObject({ code: 'ENOENT' });
+            }
+          }
           await sql`update public.asset_deletion
             set execution_expires_at = clock_timestamp() - interval '1 second'
             where asset_id = ${id}::uuid`.execute(database.db);
