@@ -865,6 +865,11 @@ describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
           return actualResolve(token);
         });
       const service = app.get(AssetDeletionService);
+      const acceptanceSpy = vi.spyOn(
+        app.get(AssetDeletionAcceptanceRepository),
+        'accept',
+      );
+      const executionSpy = vi.spyOn(app.get(AssetDeletionExecutor), 'execute');
       let receivedSignal: AbortSignal | undefined;
       const actualAccept = service.accept.bind(service);
       const actualRetry = service.retry.bind(service);
@@ -906,6 +911,8 @@ describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
         release.release();
         await finished.promise;
         expect(receivedSignal?.aborted).toBe(true);
+        expect(acceptanceSpy).not.toHaveBeenCalled();
+        expect(executionSpy).not.toHaveBeenCalled();
         expect(provider.removeExact).not.toHaveBeenCalled();
         expect(persistence).toEqual([]);
         expect(await journalCount(id)).toBe(method === 'DELETE' ? 0 : 1);
@@ -914,6 +921,8 @@ describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
         release.release();
         serviceSpy.mockRestore();
         authSpy.mockRestore();
+        acceptanceSpy.mockRestore();
+        executionSpy.mockRestore();
       }
     }, 15_000);
   }
