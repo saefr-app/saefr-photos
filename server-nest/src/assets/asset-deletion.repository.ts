@@ -9,6 +9,9 @@ import type {
 } from '../database/database.types.js';
 
 export type DeletionReceipt = Selectable<AssetDeletionTable>;
+export type ExecutionAuthority = DeletionReceipt & {
+  requested_at_exact: string;
+};
 
 export type DeletionErrorCode =
   | 'storage_unavailable'
@@ -25,7 +28,7 @@ export type ClaimResult =
   | { status: 'claimed'; token: string }
   | { status: 'pending' | 'completed' | 'missing' | 'inconsistent' };
 
-/** Database-only M12B primitives. No provider, executor or HTTP module mounts this. */
+/** Durable journal authority and short, token-guarded execution claims. */
 @Injectable()
 export class AssetDeletionRepository {
   constructor(private readonly database: DatabaseService) {}
@@ -37,6 +40,23 @@ export class AssetDeletionRepository {
     return this.database.db
       .selectFrom('asset_deletion')
       .selectAll()
+      .where('asset_id', '=', assetId)
+      .where('owner_id', '=', ownerId)
+      .executeTakeFirst();
+  }
+
+  /** Stable UTC text preserves microseconds that JS Date discards. */
+  async findExecutionAuthority(
+    assetId: string,
+    ownerId: string,
+  ): Promise<ExecutionAuthority | undefined> {
+    return this.database.db
+      .selectFrom('asset_deletion')
+      .selectAll()
+      .select(
+        sql<string>`to_char(requested_at at time zone 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.US')`.as('requested_at_exact'),
+      )
       .where('asset_id', '=', assetId)
       .where('owner_id', '=', ownerId)
       .executeTakeFirst();

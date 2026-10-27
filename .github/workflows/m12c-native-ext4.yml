@@ -15,6 +15,7 @@ on:
       - "server-nest/test/startup-main.integration-spec.ts"
       - "server-nest/test/run-integration.mjs"
       - "server-nest/test/native-ext4-certification.*"
+      - "server-nest/test/native-deletion-child.mjs"
 
 permissions:
   contents: read

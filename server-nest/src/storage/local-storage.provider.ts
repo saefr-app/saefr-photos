@@ -13,6 +13,7 @@ import { StorageBindingVerifier } from './storage-binding.service.js';
 import { roleLocation, type StorageRole } from './storage-marker.js';
 import type {
   LogicalStorageTarget,
+  ExpectedStorageBinding,
   OpenOutcome,
   PersistenceOutcome,
   PublicationOutcome,
@@ -43,18 +44,32 @@ class StorageInputTooLarge extends Error {}
  */
 export class LocalStorageProvider implements StorageProvider {
   readonly capabilities = {
-    // Mechanics are implemented, but the injected observer has no certified
-    // native implementation. Do not advertise a usable storage profile.
-    bindingObservation: false,
+    // The verifier accepts only the explicitly adopted linux-ext4-v1 profile;
+    // unsupported hosts or missing physical observation still fail closed.
+    bindingObservation: true,
     exclusiveStaging: true,
     noReplacePublication: true,
     regularFileOpen: true,
     exactRemoval: true,
     authoritativeAbsence: true,
-    deletionDurability: false,
+    deletionDurability: true,
   } as const;
 
   private readonly owned = new Map<string, OwnedStage>();
+
+  private assertExpected(
+    actual: Awaited<ReturnType<StorageBindingVerifier['assertVerified']>>,
+    expected?: ExpectedStorageBinding,
+  ): void {
+    if (
+      expected &&
+      (actual.storage_id !== expected.storage_id ||
+        actual.originals_binding_id !== expected.originals_binding_id ||
+        actual.thumbnails_binding_id !== expected.thumbnails_binding_id ||
+        actual.storage_layout_version !== expected.storage_layout_version)
+    )
+      throw new Error('Storage binding unavailable');
+  }
 
   constructor(
     private readonly verifier: StorageBindingVerifier,
@@ -85,7 +100,10 @@ export class LocalStorageProvider implements StorageProvider {
     );
   }
 
-  private async pin(role: StorageRole): Promise<FileHandle> {
+  private async pin(
+    role: StorageRole,
+    expected?: ExpectedStorageBinding,
+  ): Promise<FileHandle> {
     // All I/O below uses /proc/self/fd for this pinned directory. A renamed
     // ancestor cannot redirect a later file operation into a different root.
     const directory = this.directory(role);
@@ -101,7 +119,10 @@ export class LocalStorageProvider implements StorageProvider {
       constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
     );
     try {
-      await this.verifier.assertVerified({ role, directory: handle });
+      this.assertExpected(
+        await this.verifier.assertVerified({ role, directory: handle }),
+        expected,
+      );
       return handle;
     } catch (error) {
       await handle.close();
@@ -116,8 +137,12 @@ export class LocalStorageProvider implements StorageProvider {
   private async recheck(
     role: StorageRole,
     directory: FileHandle,
+    expected?: ExpectedStorageBinding,
   ): Promise<void> {
-    await this.verifier.assertVerified({ role, directory });
+    this.assertExpected(
+      await this.verifier.assertVerified({ role, directory }),
+      expected,
+    );
   }
 
   protected async syncFile(handle: FileHandle): Promise<void> {
@@ -321,12 +346,15 @@ export class LocalStorageProvider implements StorageProvider {
     }
   }
 
-  async removeExact(target: LogicalStorageTarget): Promise<RemovalOutcome> {
+  async removeExact(
+    target: LogicalStorageTarget,
+    expected?: ExpectedStorageBinding,
+  ): Promise<RemovalOutcome> {
     let removalAttempted = false;
     let directory: FileHandle | undefined;
     try {
       const name = this.name(target);
-      directory = await this.pin(target.role);
+      directory = await this.pin(target.role, expected);
       const path = this.pinnedPath(directory, name);
       try {
         const info = await lstat(path);
@@ -338,7 +366,7 @@ export class LocalStorageProvider implements StorageProvider {
         // A prior attempt may have unlinked the target but lost its directory
         // sync acknowledgment. Repeat-safe absence still requires fsync.
         await this.syncDirectory(target.role, directory);
-        await this.recheck(target.role, directory);
+        await this.recheck(target.role, directory, expected);
         return { status: 'absent', durable: true };
       }
       try {
@@ -348,7 +376,7 @@ export class LocalStorageProvider implements StorageProvider {
         if (!missing(error)) return { status: 'uncertain', durable: false };
       }
       await this.syncDirectory(target.role, directory);
-      await this.recheck(target.role, directory);
+      await this.recheck(target.role, directory, expected);
       return { status: 'removed', durable: true };
     } catch {
       return {
@@ -362,12 +390,13 @@ export class LocalStorageProvider implements StorageProvider {
 
   async confirmDirectoryPersistence(
     role: StorageRole,
+    expected?: ExpectedStorageBinding,
   ): Promise<PersistenceOutcome> {
     try {
-      const directory = await this.pin(role);
+      const directory = await this.pin(role, expected);
       try {
         await this.syncDirectory(role, directory);
-        await this.recheck(role, directory);
+        await this.recheck(role, directory, expected);
       } finally {
         await directory.close();
       }

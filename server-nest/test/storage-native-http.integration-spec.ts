@@ -6,17 +6,21 @@ import {
   rmdir,
   mkdir,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 
 import { Test } from '@nestjs/testing';
+import { sql } from 'kysely';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { registerAssetAccess } from '../src/auth/asset-lockdown.js';
+import { AssetDeletionExecutor } from '../src/assets/asset-deletion.executor.js';
+import { AssetDeletionRepository } from '../src/assets/asset-deletion.repository.js';
 import { AuthSessionService } from '../src/auth/auth-session.service.js';
 import { PasswordService } from '../src/auth/password.service.js';
 import { DatabaseService } from '../src/database/database.service.js';
@@ -51,6 +55,7 @@ describe.skipIf(!nativeFixture)(
     let restrictedCookie: string;
     let original: Buffer;
     let ownerAsset: string;
+    let ownerId: string;
     let uploadedAsset: string | undefined;
     const envKeys = [
       'POSTGRES_HOST',
@@ -236,6 +241,7 @@ describe.skipIf(!nativeFixture)(
         );
         const cookie = `saefr_session_dev=${issued.credential}`;
         if (name === 'owner') {
+          ownerId = id;
           ownerCookie = cookie;
           ownerCsrf = issued.actor.csrfToken.toString('base64url');
           ownerAsset = randomUUID();
@@ -488,5 +494,141 @@ describe.skipIf(!nativeFixture)(
         await rename(heldHelper, helper);
       }
     });
+
+    it('executes committed deletion on ext4, confirms absence and recovers from process kills', async () => {
+      if (!root) throw new Error('Native root unavailable');
+      const executor = app.get(AssetDeletionExecutor);
+      const journal = app.get(AssetDeletionRepository);
+      const binding = await app.get(M12ApplicationReadinessService).assess();
+      expect(binding).toBe('media-ready');
+      const marker = parseStorageMarker(
+        await readFile(join(root, 'originals', '.saefr-storage.json')),
+      );
+      const thumbnailMarker = parseStorageMarker(
+        await readFile(join(root, 'thumbnails', '.saefr-storage.json')),
+      );
+      for (const point of [
+        'BEFORE_REMOVE',
+        'ORIGINAL_DONE',
+        'BOTH_DONE',
+        'none',
+      ]) {
+        const id = randomUUID();
+        await writeFile(
+          join(root, 'originals', `${id}.jpg`),
+          'synthetic original',
+        );
+        await writeFile(
+          join(root, 'thumbnails', `${id}.jpg`),
+          'synthetic thumbnail',
+        );
+        await database.db
+          .insertInto('asset_deletion')
+          .values({
+            asset_id: id,
+            owner_id: ownerId,
+            accepted_lifecycle_version: '0',
+            storage_id: marker.storage_id,
+            originals_binding_id: marker.binding_id,
+            thumbnails_binding_id: thumbnailMarker.binding_id,
+            storage_layout_version: 1,
+            original_extension: '.jpg',
+            requested_at: new Date(),
+            completed_at: null,
+            last_error_code: null,
+            execution_token: null,
+            execution_expires_at: null,
+          })
+          .execute();
+        if (point !== 'none') {
+          const child = spawn(
+            process.execPath,
+            ['test/native-deletion-child.mjs', id, ownerId, point],
+            {
+              cwd: process.cwd(),
+              env: { ...process.env, SAEFR_NATIVE_TEST_CHILD: '1' },
+              stdio: ['ignore', 'pipe', 'pipe'],
+            },
+          );
+          const exited = new Promise<void>((resolve) =>
+            child.once('close', () => resolve()),
+          );
+          try {
+            await new Promise<void>((resolve, reject) => {
+              const timeout = setTimeout(
+                () => reject(new Error('Deletion kill point unavailable')),
+                10_000,
+              );
+              let output = '';
+              child.stdout?.setEncoding('utf8');
+              child.stdout?.on('data', (chunk: string) => {
+                output += chunk;
+                if (output.includes(`${point}\n`)) {
+                  clearTimeout(timeout);
+                  resolve();
+                }
+              });
+              child.once('exit', (code) => {
+                clearTimeout(timeout);
+                reject(
+                  new Error(`Deletion child exited before kill point: ${code}`),
+                );
+              });
+              child.once('error', reject);
+            });
+          } finally {
+            child.kill('SIGKILL');
+            await exited;
+          }
+          expect(
+            (await journal.findForOwner(id, ownerId))?.completed_at,
+          ).toBeNull();
+          await sql`update public.asset_deletion
+            set execution_expires_at = clock_timestamp() - interval '1 second'
+            where asset_id = ${id}::uuid`.execute(database.db);
+        }
+        expect(await executor.execute(id, ownerId)).toBe('completed');
+        expect(await executor.execute(id, ownerId)).toBe('completed');
+        expect(
+          (await journal.findForOwner(id, ownerId))?.completed_at,
+        ).not.toBeNull();
+        await expect(
+          readFile(join(root, 'originals', `${id}.jpg`)),
+        ).rejects.toMatchObject({ code: 'ENOENT' });
+        await expect(
+          readFile(join(root, 'thumbnails', `${id}.jpg`)),
+        ).rejects.toMatchObject({ code: 'ENOENT' });
+      }
+
+      const unexpectedId = randomUUID();
+      const neighbor = join(root, 'originals', `${randomUUID()}.jpg`);
+      await writeFile(neighbor, 'preserved neighbor');
+      await symlink(neighbor, join(root, 'originals', `${unexpectedId}.jpg`));
+      await database.db
+        .insertInto('asset_deletion')
+        .values({
+          asset_id: unexpectedId,
+          owner_id: ownerId,
+          accepted_lifecycle_version: '0',
+          storage_id: marker.storage_id,
+          originals_binding_id: marker.binding_id,
+          thumbnails_binding_id: thumbnailMarker.binding_id,
+          storage_layout_version: 1,
+          original_extension: '.jpg',
+          requested_at: new Date(),
+          completed_at: null,
+          last_error_code: null,
+          execution_token: null,
+          execution_expires_at: null,
+        })
+        .execute();
+      expect(await executor.execute(unexpectedId, ownerId)).toBe('pending');
+      expect(
+        (await journal.findForOwner(unexpectedId, ownerId))?.completed_at,
+      ).toBeNull();
+      expect(await readFile(neighbor, 'utf8')).toBe('preserved neighbor');
+      await rm(join(root, 'originals', `${unexpectedId}.jpg`));
+      await rm(neighbor);
+    }, 60_000);
   },
 );

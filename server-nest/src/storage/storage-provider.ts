@@ -9,6 +9,15 @@ export interface LogicalStorageTarget {
   readonly extension: '.jpg' | '.png' | '.webp';
 }
 
+/** Immutable journal tuple used to reject a changed anchor inside provider I/O. */
+export type ExpectedStorageBinding = Pick<
+  StorageBinding,
+  | 'storage_id'
+  | 'originals_binding_id'
+  | 'thumbnails_binding_id'
+  | 'storage_layout_version'
+>;
+
 export interface StorageCapabilities {
   readonly bindingObservation: boolean;
   readonly exclusiveStaging: boolean;
@@ -72,7 +81,7 @@ export type RemovalOutcome =
  * replaces an existing name and retains any uncertain result for reconciliation.
  * Compensation verifies attempt ownership; a target name or attempt ID alone
  * cannot authorize unlink. Confirmed absence only applies to verified storage.
- * No native adapter is certified yet, so this interface grants no access.
+ * A capability flag never bypasses fresh physical binding verification.
  */
 export interface StorageProvider {
   readonly capabilities: StorageCapabilities;
@@ -84,8 +93,14 @@ export interface StorageProvider {
     beforePublish?: (bytes: Buffer) => Promise<void>,
   ): Promise<PublicationOutcome>;
   open(target: LogicalStorageTarget): Promise<OpenOutcome>;
-  removeExact(target: LogicalStorageTarget): Promise<RemovalOutcome>;
-  confirmDirectoryPersistence(role: StorageRole): Promise<PersistenceOutcome>;
+  removeExact(
+    target: LogicalStorageTarget,
+    expected?: ExpectedStorageBinding,
+  ): Promise<RemovalOutcome>;
+  confirmDirectoryPersistence(
+    role: StorageRole,
+    expected?: ExpectedStorageBinding,
+  ): Promise<PersistenceOutcome>;
   compensateOwned(published: PublishedObject): Promise<RemovalOutcome>;
   releaseOwned(published: PublishedObject): Promise<PersistenceOutcome>;
 }

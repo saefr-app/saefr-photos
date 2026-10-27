@@ -17,8 +17,8 @@ export type StorageBinding = Selectable<StorageBindingTable>;
 
 /**
  * Implementations must read the marker and physical identity from the same
- * safely opened directory and detect replacement before returning. No such
- * native implementation is certified yet; the default refuses observation.
+ * safely opened directory and detect replacement before returning. The
+ * default refuses observation on unsupported profiles.
  */
 export interface PhysicalStorageObserver {
   observe(
