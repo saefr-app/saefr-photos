@@ -1,6 +1,6 @@
 # M12E.2 — Permanent-deletion HTTP integration
 
-- **Status:** Feature-branch implementation and local verification complete; hosted native ext4 HTTP verification remains pending. Independent HTTP security review, M12F, real-data migration and deployment remain separate gates.
+- **Status:** Feature-branch implementation and local/hosted verification complete; ready for independent HTTP security review. M12F, real-data migration and deployment remain separate gates.
 - **Base:** M12E.1 focused correction `0515ab7d7467e1c32df99032cd410369ef7345dd`.
 - **Date:** 2026-10-28.
 
@@ -28,21 +28,23 @@ No migration, historical schema validator, executor, authentication implementati
 
 Run from `server-nest/` under Node.js 24. `npm run test:integration` and `npm run test:migrations` use only the identity-checked, randomly named, localhost-bound, tmpfs `postgres:18` runner; synthetic local HTTP tests use a separately named database inside that disposable container. The native workflow alone creates guarded temporary ext4 images on a GitHub-hosted disposable VM. Migration-only cases overlap the complete integration suite.
 
-| Command or check                       | Result                                                                                                                           |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run build`                        | PASS after implementation and again as part of integration, migration and runtime smoke commands.                                |
-| `npm run typecheck`                    | PASS after the final source and test changes.                                                                                    |
-| `npm run lint`                         | PASS, no warnings after removing a test-only unused import and adding an explicit sort comparator.                               |
-| `npm run test`                         | PASS: 153 unit tests in 21 files.                                                                                                |
-| `npm run test:e2e`                     | PASS: 59 HTTP E2E tests in 8 files.                                                                                              |
-| `npm run test:integration`             | PASS: 253 cases in 15 files; six guarded native cases skipped on this non-ext4 local host.                                       |
-| `npm run test:migrations`              | PASS on sequential rerun: 82 cases in one file, included in the 253 integration cases.                                           |
-| `npm run test:runtime-smoke`           | PASS: invalid configuration and unavailable authentication database exited safely with nonzero status.                           |
-| `npm run test:native`                  | PASS: six native-observer unit cases.                                                                                            |
-| Hosted ext4 HTTP conformance           | Pending the feature-branch push and hosted workflow; no hosted result is claimed yet.                                            |
-| Focused Prettier, links and whitespace | Focused Prettier and 26 relative Markdown links passed; tracked whitespace passed, with staged whitespace checked at checkpoint. |
+| Command or check                       | Result                                                                                                                                                                              |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build`                        | PASS after implementation and again as part of integration, migration and runtime smoke commands.                                                                                   |
+| `npm run typecheck`                    | PASS after the final source and test changes.                                                                                                                                       |
+| `npm run lint`                         | PASS, no warnings after removing a test-only unused import and adding an explicit sort comparator.                                                                                  |
+| `npm run test`                         | PASS: 153 unit tests in 21 files.                                                                                                                                                   |
+| `npm run test:e2e`                     | PASS: 59 HTTP E2E tests in 8 files.                                                                                                                                                 |
+| `npm run test:integration`             | PASS: 253 cases in 15 files; six guarded native cases skipped on this non-ext4 local host.                                                                                          |
+| `npm run test:migrations`              | PASS on sequential rerun: 82 cases in one file, included in the 253 integration cases.                                                                                              |
+| `npm run test:runtime-smoke`           | PASS: invalid configuration and unavailable authentication database exited safely with nonzero status.                                                                              |
+| `npm run test:native`                  | PASS: six native-observer unit cases.                                                                                                                                               |
+| Hosted ext4 HTTP conformance           | PASS: [run 40565724622](https://github.com/saefr-app/saefr-photos/actions/runs/40565724622) on `bc9fa3bd6f28bd3203f7b7b79483a21026933b02`; six native HTTP/PostgreSQL cases passed. |
+| Focused Prettier, links and whitespace | Focused Prettier and 26 relative Markdown links passed; tracked whitespace passed, with staged whitespace checked at checkpoint.                                                    |
 
 The initial complete integration run passed 247 cases and removed its owned container. A later run passed 250 cases after adding rollback, storage-anchor and lost-acknowledgement injection. A subsequent run timed out in two new race tests because their lock holder and wait observer mistakenly shared a single-connection test pool; the tests were corrected to use an independent pool, and the fresh 253-case run passed. An initial migration-only run overlapped another build that replaced `dist` while its CLI tests were executing; two CLI tests failed with a missing compiled module. The sequential rerun passed all 82 cases. Every disposable runner container was removed; a final `docker ps -a` filter for its container prefix returned no entries. These failures were test orchestration and fixture issues, not application or migration changes. The lost-acknowledgement fixture commits through real Kysely/PostgreSQL, then throws a synthetic client acknowledgement error; it proves the application's confirmation gate but does not simulate a physical network break. The rollback fixture uses a temporary database trigger and verifies the asset remains and no provider removal begins. Both fixtures are confined to the disposable database.
+
+The hosted disposable-ext4 workflow ran the new HTTP acceptance, owner denial, changed/missing binding, partial-removal retry and repeated-DELETE checks on the approved non-root native fixture. Its six guarded cases passed against a disposable PostgreSQL container. The log confirms that the owned container and ext4 mounts/image files were removed. This is native ext4 conformance for that hosted profile, not a hardware power-loss test or certification for other filesystems.
 
 ## Security self-audit and limits
 
