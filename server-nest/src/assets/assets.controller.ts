@@ -49,6 +49,7 @@ import {
   parsePageQuery,
 } from './asset-lifecycle-contract.js';
 import { AssetDeletionService } from './asset-deletion.service.js';
+import { hasDeletionBody } from './deletion-empty-body.js';
 import { MAX_UPLOAD_BYTES } from '../storage/image-limits.js';
 import type { ActorRequest } from '../auth/request-auth.js';
 import type { AuthenticatedActor } from '../auth/auth-session.service.js';
@@ -114,7 +115,7 @@ export class AssetsController {
   }
 
   private emptyBody(request: ActorRequest): void {
-    if (request.body !== undefined)
+    if (hasDeletionBody(request))
       throw new BadRequestException('Invalid request');
   }
 
@@ -132,6 +133,14 @@ export class AssetsController {
     request.raw.once('aborted', disconnect);
     reply.raw.once('close', disconnect);
     try {
+      // Authentication can await after the peer has already closed. Event
+      // listeners alone cannot observe a close that happened before entry.
+      if (
+        request.raw.aborted ||
+        (!reply.raw.writableEnded && reply.raw.destroyed) ||
+        request.raw.socket.destroyed
+      )
+        disconnect();
       const result = await work(controller.signal);
       reply.code(result.code);
       reply.header(

@@ -10,6 +10,10 @@ import type { FastifyRequest } from 'fastify';
 import { AuthSessionService } from './auth-session.service.js';
 import { exactOrigin, RequestAuthenticator } from './request-auth.js';
 import { safeErrorCode } from '../errors/safe-error-code.js';
+import {
+  hasDeletionBody,
+  isDeletionMutation,
+} from '../assets/deletion-empty-body.js';
 
 function assetNamespace(path: string): boolean {
   return path === '/api/v1/assets' || path.startsWith('/api/v1/assets/');
@@ -84,5 +88,25 @@ export function registerAssetAccess(app: NestFastifyApplication): void {
             error: label,
           });
       }
+    });
+  // Runs after authentication and before Fastify content parsers. Multipart
+  // streaming may leave request.body undefined despite a real wire payload.
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .addHook('onRequest', async (request, reply) => {
+      if (reply.sent || !isDeletionMutation(request)) return;
+      if (hasDeletionBody(request)) {
+        reply.type('application/json').code(400).send({
+          statusCode: 400,
+          message: 'Invalid request',
+          error: 'Bad Request',
+        });
+        return;
+      }
+      // Fastify rejects empty JSON requests with Content-Length: 0 before
+      // the handler. A content type alone does not make an empty body unsafe.
+      delete request.headers['content-type'];
+      delete request.raw.headers['content-type'];
     });
 }

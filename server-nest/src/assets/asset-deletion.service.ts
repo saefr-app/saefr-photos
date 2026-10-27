@@ -46,6 +46,7 @@ export class AssetDeletionService {
     ifMatch: string | string[] | undefined,
     signal?: AbortSignal,
   ): Promise<DeletionHttpResult> {
+    if (signal?.aborted) throw this.unavailable();
     // An existing journal is authoritative even when the storage is offline.
     let existing: PublicDeletionReceipt | null;
     try {
@@ -92,6 +93,9 @@ export class AssetDeletionService {
     } catch {
       throw this.unavailable();
     }
+    // If the client left during read-only preflight, do not start a new
+    // irreversible acceptance. Once acceptance starts, its outcome stands.
+    if (signal?.aborted) throw this.unavailable();
     const acceptance = await this.acceptance.accept(
       actor,
       assetId,
@@ -123,6 +127,7 @@ export class AssetDeletionService {
     assetId: string,
     signal?: AbortSignal,
   ): Promise<DeletionHttpResult> {
+    if (signal?.aborted) throw this.unavailable();
     let existing: PublicDeletionReceipt | null;
     try {
       await this.acceptance.assertCurrentActor(actor);

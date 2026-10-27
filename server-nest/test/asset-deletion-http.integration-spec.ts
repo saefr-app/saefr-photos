@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { request as httpRequest, type ClientRequest } from 'node:http';
 
 import { Test } from '@nestjs/testing';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -7,6 +8,7 @@ import { sql, type Kysely } from 'kysely';
 import type { Transaction } from 'kysely';
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -16,6 +18,8 @@ import {
 } from 'vitest';
 
 import { AssetDeletionAcceptanceRepository } from '../src/assets/asset-deletion-acceptance.repository.js';
+import { AssetDeletionExecutor } from '../src/assets/asset-deletion.executor.js';
+import { AssetDeletionService } from '../src/assets/asset-deletion.service.js';
 import { lockAssetId } from '../src/assets/asset-id-coordination.js';
 import { lifecycleEtag } from '../src/assets/asset-lifecycle-contract.js';
 import { DatabaseService } from '../src/database/database.service.js';
@@ -26,6 +30,7 @@ import {
 } from '../src/database/migrations/migration-config.js';
 import { migrateToLatest } from '../src/database/migrations/migration-runner.js';
 import { registerAssetAccess } from '../src/auth/asset-lockdown.js';
+import { AuthSessionService } from '../src/auth/auth-session.service.js';
 import { createHttpAdapter } from '../src/http-adapter.js';
 import { LocalStorageProvider } from '../src/storage/local-storage.provider.js';
 import { testConfig } from './helpers/integration-database.js';
@@ -58,6 +63,14 @@ const previous = Object.fromEntries(
   envKeys.map((key) => [key, process.env[key]]),
 );
 
+function barrier() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
 describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
   let admin: DatabaseService;
   let db: Kysely<unknown>;
@@ -68,6 +81,7 @@ describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
   let available = true;
   let removed: string[] = [];
   let persistence: string[] = [];
+  const closeObservers = new Map<string, () => void>();
   const provider = {
     capabilities: {
       bindingObservation: true,
@@ -192,6 +206,15 @@ describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
       .compile();
     app =
       module.createNestApplication<NestFastifyApplication>(createHttpAdapter());
+    app
+      .getHttpAdapter()
+      .getInstance()
+      .addHook('onRequest', (request, reply, done) => {
+        const key = request.headers['x-test-close-key'];
+        if (typeof key === 'string')
+          reply.raw.once('close', () => closeObservers.get(key)?.());
+        done();
+      });
     registerAssetAccess(app);
     await app.listen({ host: '127.0.0.1', port: 0 });
     const socket = app.getHttpServer().address();
@@ -211,7 +234,36 @@ describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
     persistence = [];
     provider.removeExact.mockClear();
     provider.verifyBinding.mockClear();
+    closeObservers.clear();
   });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function abandonedSocket(
+    method: 'DELETE' | 'POST',
+    path: string,
+    requestHeaders: Record<string, string>,
+    onClose: () => void,
+  ): ClientRequest {
+    const key = randomUUID();
+    closeObservers.set(key, onClose);
+    const client = httpRequest(`${address}${path}`, {
+      method,
+      headers: { ...requestHeaders, 'X-Test-Close-Key': key },
+    });
+    client.on('error', () => undefined);
+    client.on('response', (response) => response.resume());
+    client.end();
+    return client;
+  }
+
+  async function journalCount(id: string): Promise<number> {
+    const result = await sql<{
+      count: number;
+    }>`select count(*)::integer as count
+      from public.asset_deletion where asset_id = ${id}::uuid`.execute(db);
+    return result.rows[0].count;
+  }
 
   afterAll(async () => {
     await app?.close();
@@ -781,5 +833,449 @@ describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
       confirmation.mockRestore();
       transaction.mockRestore();
     }
+  });
+
+  for (const method of ['DELETE', 'POST'] as const) {
+    it(`${method} does not dispatch deletion after a disconnect during authentication`, async () => {
+      const id = randomUUID();
+      await asset(id);
+      if (method === 'POST') {
+        provider.removeExact.mockImplementationOnce(async () => ({
+          status: 'uncertain' as const,
+          durable: false,
+        }));
+        expect(
+          (await deletion(id, { tag: lifecycleEtag(id, '1') })).status,
+        ).toBe(202);
+        provider.removeExact.mockClear();
+        removed = [];
+        persistence = [];
+      }
+      const entered = barrier();
+      const release = barrier();
+      const closed = barrier();
+      const finished = barrier();
+      const sessions = app.get(AuthSessionService);
+      const actualResolve = sessions.resolve.bind(sessions);
+      const authSpy = vi
+        .spyOn(sessions, 'resolve')
+        .mockImplementation(async (token) => {
+          entered.release();
+          await release.promise;
+          return actualResolve(token);
+        });
+      const service = app.get(AssetDeletionService);
+      let receivedSignal: AbortSignal | undefined;
+      const actualAccept = service.accept.bind(service);
+      const actualRetry = service.retry.bind(service);
+      const serviceSpy =
+        method === 'DELETE'
+          ? vi.spyOn(service, 'accept').mockImplementation(async (...args) => {
+              receivedSignal = args[3];
+              try {
+                return await actualAccept(...args);
+              } finally {
+                finished.release();
+              }
+            })
+          : vi.spyOn(service, 'retry').mockImplementation(async (...args) => {
+              receivedSignal = args[2];
+              try {
+                return await actualRetry(...args);
+              } finally {
+                finished.release();
+              }
+            });
+      const client = abandonedSocket(
+        method,
+        method === 'DELETE'
+          ? `/api/v1/assets/${id}`
+          : `/api/v1/assets/deletions/${id}/retry`,
+        {
+          ...headers('owner', true),
+          ...(method === 'DELETE'
+            ? { 'If-Match': lifecycleEtag(id, '1') }
+            : {}),
+        },
+        closed.release,
+      );
+      try {
+        await entered.promise;
+        client.destroy();
+        await closed.promise;
+        release.release();
+        await finished.promise;
+        expect(receivedSignal?.aborted).toBe(true);
+        expect(provider.removeExact).not.toHaveBeenCalled();
+        expect(persistence).toEqual([]);
+        expect(await journalCount(id)).toBe(method === 'DELETE' ? 0 : 1);
+      } finally {
+        client.destroy();
+        release.release();
+        serviceSpy.mockRestore();
+        authSpy.mockRestore();
+      }
+    }, 15_000);
+  }
+
+  it('keeps a committed acceptance pending when the client leaves before execution', async () => {
+    const id = randomUUID();
+    await asset(id);
+    const entered = barrier();
+    const release = barrier();
+    const closed = barrier();
+    const finished = barrier();
+    const repository = app.get(AssetDeletionAcceptanceRepository);
+    const actualAccept = repository.accept.bind(repository);
+    const acceptanceSpy = vi
+      .spyOn(repository, 'accept')
+      .mockImplementation(async (...args) => {
+        const result = await actualAccept(...args);
+        entered.release();
+        await release.promise;
+        return result;
+      });
+    const service = app.get(AssetDeletionService);
+    const actualServiceAccept = service.accept.bind(service);
+    const serviceSpy = vi
+      .spyOn(service, 'accept')
+      .mockImplementation(async (...args) => {
+        try {
+          return await actualServiceAccept(...args);
+        } finally {
+          finished.release();
+        }
+      });
+    const client = abandonedSocket(
+      'DELETE',
+      `/api/v1/assets/${id}`,
+      { ...headers('owner', true), 'If-Match': lifecycleEtag(id, '1') },
+      closed.release,
+    );
+    try {
+      await entered.promise;
+      client.destroy();
+      await closed.promise;
+      release.release();
+      await finished.promise;
+      expect(await journalCount(id)).toBe(1);
+      const assetRow = await sql<{
+        count: number;
+      }>`select count(*)::integer as count
+        from public.asset where id = ${id}::uuid`.execute(db);
+      expect(assetRow.rows[0].count).toBe(0);
+      expect(provider.removeExact).not.toHaveBeenCalled();
+      const status = await request(`/api/v1/assets/deletions/${id}`, {
+        headers: headers(),
+      });
+      expect(((await status.json()) as { status: string }).status).toBe(
+        'pending',
+      );
+      expect(
+        (
+          await request(`/api/v1/assets/deletions/${id}/retry`, {
+            method: 'POST',
+            headers: headers('owner', true),
+          })
+        ).status,
+      ).toBe(200);
+    } finally {
+      client.destroy();
+      release.release();
+      serviceSpy.mockRestore();
+      acceptanceSpy.mockRestore();
+    }
+  }, 15_000);
+
+  it('drains an issued provider call after disconnect without starting another', async () => {
+    const id = randomUUID();
+    await asset(id);
+    const entered = barrier();
+    const release = barrier();
+    const closed = barrier();
+    const finished = barrier();
+    provider.removeExact.mockImplementationOnce(
+      async (target: { role: string }) => {
+        removed.push(target.role);
+        entered.release();
+        await release.promise;
+        return { status: 'removed' as const, durable: true };
+      },
+    );
+    const executor = app.get(AssetDeletionExecutor);
+    const actualExecute = executor.execute.bind(executor);
+    const executionSpy = vi
+      .spyOn(executor, 'execute')
+      .mockImplementation(async (...args) => {
+        try {
+          return await actualExecute(...args);
+        } finally {
+          finished.release();
+        }
+      });
+    const client = abandonedSocket(
+      'DELETE',
+      `/api/v1/assets/${id}`,
+      { ...headers('owner', true), 'If-Match': lifecycleEtag(id, '1') },
+      closed.release,
+    );
+    try {
+      await entered.promise;
+      client.destroy();
+      await closed.promise;
+      expect((executor as unknown as { active: number }).active).toBe(1);
+      expect(removed).toEqual(['originals']);
+      release.release();
+      await finished.promise;
+      expect((executor as unknown as { active: number }).active).toBe(0);
+      expect(removed).toEqual(['originals']);
+      expect(persistence).toEqual([]);
+      expect(
+        (
+          (await (
+            await request(`/api/v1/assets/deletions/${id}`, {
+              headers: headers(),
+            })
+          ).json()) as { status: string }
+        ).status,
+      ).toBe('pending');
+    } finally {
+      client.destroy();
+      release.release();
+      executionSpy.mockRestore();
+    }
+  }, 15_000);
+
+  it('rejects nonempty framed bodies before acceptance for both deletion routes', async () => {
+    const execution = vi.spyOn(app.get(AssetDeletionExecutor), 'execute');
+    const cases = [
+      [
+        'JSON object',
+        () => ({ body: '{}', headers: { 'Content-Type': 'application/json' } }),
+      ],
+      [
+        'JSON null',
+        () => ({
+          body: 'null',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ],
+      [
+        'plain text',
+        () => ({
+          body: 'private synthetic text',
+          headers: { 'Content-Type': 'text/plain' },
+        }),
+      ],
+      [
+        'octet stream',
+        () => ({
+          body: 'synthetic bytes',
+          headers: { 'Content-Type': 'application/octet-stream' },
+        }),
+      ],
+      [
+        'multipart field',
+        () => {
+          const body = new FormData();
+          body.set('field', 'synthetic');
+          return { body, headers: {} };
+        },
+      ],
+      [
+        'multipart file',
+        () => {
+          const body = new FormData();
+          body.set(
+            'file',
+            new Blob(['synthetic image bytes']),
+            'synthetic.jpg',
+          );
+          return { body, headers: {} };
+        },
+      ],
+    ] as const;
+    for (const [name, make] of cases) {
+      const id = randomUUID();
+      await asset(id);
+      const payload = make();
+      const response = await request(`/api/v1/assets/${id}`, {
+        method: 'DELETE',
+        headers: {
+          ...headers('owner', true),
+          'If-Match': lifecycleEtag(id, '1'),
+          ...payload.headers,
+        },
+        body: payload.body,
+      });
+      expect(response.status, name).toBe(400);
+      expect(await response.json(), name).toEqual({
+        statusCode: 400,
+        message: 'Invalid request',
+        error: 'Bad Request',
+      });
+      expect(await journalCount(id), name).toBe(0);
+      const existing = await sql<{
+        count: number;
+      }>`select count(*)::integer as count
+        from public.asset where id = ${id}::uuid`.execute(db);
+      expect(existing.rows[0].count, name).toBe(1);
+      expect(execution, name).not.toHaveBeenCalled();
+      expect(provider.removeExact, name).not.toHaveBeenCalled();
+      await sql`delete from public.asset where id = ${id}::uuid`.execute(db);
+    }
+
+    const id = randomUUID();
+    await asset(id);
+    provider.removeExact.mockImplementationOnce(async () => ({
+      status: 'uncertain' as const,
+      durable: false,
+    }));
+    expect((await deletion(id, { tag: lifecycleEtag(id, '1') })).status).toBe(
+      202,
+    );
+    execution.mockClear();
+    provider.removeExact.mockClear();
+    removed = [];
+    persistence = [];
+    for (const [name, make] of cases) {
+      const payload = make();
+      const response = await request(`/api/v1/assets/deletions/${id}/retry`, {
+        method: 'POST',
+        headers: { ...headers('owner', true), ...payload.headers },
+        body: payload.body,
+      });
+      expect(response.status, name).toBe(400);
+      expect(await response.json(), name).toEqual({
+        statusCode: 400,
+        message: 'Invalid request',
+        error: 'Bad Request',
+      });
+    }
+    expect(await journalCount(id)).toBe(1);
+    expect(execution).not.toHaveBeenCalled();
+    expect(provider.removeExact).not.toHaveBeenCalled();
+    expect(persistence).toEqual([]);
+  }, 20_000);
+
+  for (const method of ['DELETE', 'POST'] as const) {
+    it(`${method} rejects chunked multipart before deletion work and preserves authentication order`, async () => {
+      const execution = vi.spyOn(app.get(AssetDeletionExecutor), 'execute');
+      const id = randomUUID();
+      await asset(id);
+      if (method === 'POST') {
+        provider.removeExact.mockImplementationOnce(async () => ({
+          status: 'uncertain' as const,
+          durable: false,
+        }));
+        expect(
+          (await deletion(id, { tag: lifecycleEtag(id, '1') })).status,
+        ).toBe(202);
+        execution.mockClear();
+        provider.removeExact.mockClear();
+      }
+      const path =
+        method === 'DELETE'
+          ? `/api/v1/assets/${id}`
+          : `/api/v1/assets/deletions/${id}/retry`;
+      const boundary = 'synthetic-boundary';
+      const body = `--${boundary}\r\nContent-Disposition: form-data; name="field"\r\n\r\nsynthetic\r\n--${boundary}--\r\n`;
+      async function chunked(requestHeaders: Record<string, string>) {
+        return new Promise<{ status: number; body: unknown }>(
+          (resolve, reject) => {
+            const client = httpRequest(
+              `${address}${path}`,
+              {
+                method,
+                headers: {
+                  ...requestHeaders,
+                  'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                  'Transfer-Encoding': 'chunked',
+                },
+              },
+              (response) => {
+                let received = '';
+                response.setEncoding('utf8');
+                response.on('data', (part: string) => {
+                  received += part;
+                });
+                response.on('end', () =>
+                  resolve({
+                    status: response.statusCode ?? 0,
+                    body: JSON.parse(received) as unknown,
+                  }),
+                );
+              },
+            );
+            client.on('error', reject);
+            client.write(body.slice(0, 20));
+            client.end(body.slice(20));
+          },
+        );
+      }
+      const authenticated = await chunked({
+        ...headers('owner', true),
+        ...(method === 'DELETE' ? { 'If-Match': lifecycleEtag(id, '1') } : {}),
+      });
+      expect(authenticated).toEqual({
+        status: 400,
+        body: {
+          statusCode: 400,
+          message: 'Invalid request',
+          error: 'Bad Request',
+        },
+      });
+      expect((await chunked({})).status).toBe(401);
+      expect((await chunked(headers('owner', false))).status).toBe(403);
+      expect(
+        (
+          await request(path, {
+            method: 'PUT',
+            headers: {
+              ...headers('owner', true),
+              'Content-Type': 'application/json',
+            },
+            body: '{}',
+          })
+        ).status,
+      ).toBe(404);
+      expect(await journalCount(id)).toBe(method === 'DELETE' ? 0 : 1);
+      expect(execution).not.toHaveBeenCalled();
+      expect(provider.removeExact).not.toHaveBeenCalled();
+    }, 15_000);
+  }
+
+  it('continues to accept genuinely empty ordinary and explicit zero-length requests', async () => {
+    const id = randomUUID();
+    await asset(id);
+    provider.removeExact.mockImplementationOnce(async () => ({
+      status: 'uncertain' as const,
+      durable: false,
+    }));
+    expect((await deletion(id, { tag: lifecycleEtag(id, '1') })).status).toBe(
+      202,
+    );
+    expect(
+      (
+        await request(`/api/v1/assets/deletions/${id}/retry`, {
+          method: 'POST',
+          headers: {
+            ...headers('owner', true),
+            'Content-Length': '0',
+            'Content-Type': 'application/json',
+          },
+        })
+      ).status,
+    ).toBe(200);
+    const second = randomUUID();
+    await asset(second);
+    expect(
+      (
+        await deletion(second, {
+          tag: lifecycleEtag(second, '1'),
+          headers: { 'Content-Length': '0' },
+        })
+      ).status,
+    ).toBe(200);
   });
 });
