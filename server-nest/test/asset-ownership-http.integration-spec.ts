@@ -327,8 +327,13 @@ describe('M11 production owner-scoped HTTP boundary over real sockets', () => {
       });
       expect(list.status).toBe(200);
       safe(list);
-      const rows = JSON.parse(list.body.toString()) as Array<{ id: string }>;
-      expect(rows.map((row) => row.id)).toEqual([assets[name]]);
+      const page = JSON.parse(list.body.toString()) as {
+        items: Array<{ id: string; lifecycle_version: string }>;
+        next_cursor: string | null;
+      };
+      expect(page.items.map((row) => row.id)).toEqual([assets[name]]);
+      expect(page.items[0].lifecycle_version).toBe('0');
+      expect(page.next_cursor).toBeNull();
       for (const suffix of ['', '/original', '/thumbnail']) {
         const res = await request(`/api/v1/assets/${assets[name]}${suffix}`, {
           headers: headers(client),
@@ -584,7 +589,9 @@ describe('M11 production owner-scoped HTTP boundary over real sockets', () => {
       'http://127.0.0.1/api/v1/%61ssets/',
     ]) {
       denied(await request(path), 401);
-      expect((await request(path, { headers: headers() })).status).toBe(200);
+      expect((await request(path, { headers: headers() })).status).toBe(
+        path.includes('owner_id=') ? 400 : 200,
+      );
     }
     denied(await request('/api/v1/assets/not-a-uuid'), 401);
     denied(

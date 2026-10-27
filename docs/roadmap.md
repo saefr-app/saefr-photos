@@ -47,6 +47,10 @@ The approved Phase 11A architecture is in [ADR 0005](decisions/0005-asset-owners
 4. Redis + BullMQ worker for robust background processing, retries and failed-job visibility. Do not treat BullMQ as a separate container; it is a library running in backend/worker processes.
 5. CI and alpha validation: automated checks before PR integrations, production-style smoke test, backup/recovery verification, security review, documentation; first `main` merge and alpha version tag upon approval.
 
+### M12 — Manual asset lifecycle [FEATURE BRANCH IN PROGRESS]
+
+The merged M12B database foundation and reviewed M12C storage compatibility checkpoint precede M12D's feature-branch pagination, owner-only Trash/Restore and Trash thumbnail behavior. M12D does not enable permanent deletion; M12E and M12F remain required before the milestone PR can leave draft. The current [M12 specification](development/milestone-12-spec.md) and [M12D report](development/milestone-12d-report.md) distinguish implemented behavior from remaining work. Real-data migration, storage adoption and deployment remain separately gated.
+
 ## Future app + ML tracks
 
 - Mobile client, gallery, upload/backup workflows: parallel development can start on stable API contracts, not only after server release.

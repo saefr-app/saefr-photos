@@ -22,6 +22,8 @@ const asset = {
   size: 2450000,
   storage_path: '/storage/originals/550e8400-e29b-41d4-a716-446655440000.jpg',
   created_at: new Date('2026-10-15T12:00:00.000Z'),
+  cursor_timestamp: '2026-10-15T12:00:00.000000Z',
+  lifecycle_version: '0',
 };
 
 const originalBytes = Buffer.from('original image bytes');
@@ -30,7 +32,7 @@ const thumbnailBytes = Buffer.from('thumbnail image bytes');
 describe('Assets API (e2e)', () => {
   let app: NestFastifyApplication;
 
-  const findAll = vi.fn().mockResolvedValue([asset]);
+  const findPage = vi.fn().mockResolvedValue([asset]);
 
   const findById = vi.fn().mockImplementation(async (id: string) => {
     return id === asset.id ? asset : undefined;
@@ -62,7 +64,7 @@ describe('Assets API (e2e)', () => {
       .useValue(assetAuthenticator)
       .overrideProvider(AssetsRepository)
       .useValue({
-        findAll,
+        findPage,
         findById,
         findFileById,
       })
@@ -97,17 +99,21 @@ describe('Assets API (e2e)', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual([
-      {
-        id: asset.id,
-        filename: asset.filename,
-        mime_type: asset.mime_type,
-        size: asset.size,
-        created_at: '2026-10-15T12:00:00.000Z',
-      },
-    ]);
+    expect(response.json()).toEqual({
+      items: [
+        {
+          id: asset.id,
+          filename: asset.filename,
+          mime_type: asset.mime_type,
+          size: asset.size,
+          created_at: '2026-10-15T12:00:00.000Z',
+          lifecycle_version: '0',
+        },
+      ],
+      next_cursor: null,
+    });
 
-    expect(response.json()[0]).not.toHaveProperty('storage_path');
+    expect(response.json().items[0]).not.toHaveProperty('storage_path');
   });
 
   it('supports the trailing slash', async () => {

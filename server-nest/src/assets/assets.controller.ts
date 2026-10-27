@@ -7,11 +7,13 @@ import {
   Get,
   Header,
   HttpException,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   PayloadTooLargeException,
   Post,
   Req,
+  Res,
   StreamableFile,
   UnauthorizedException,
   ForbiddenException,
@@ -24,13 +26,22 @@ import {
   ApiOperation,
   ApiParam,
   ApiProduces,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import type { MultipartFile } from '@fastify/multipart';
+import type { FastifyReply } from 'fastify';
 
 import { AssetsService, type AssetContent } from './assets.service.js';
-import { AssetResponseDto } from './dto/asset-response.dto.js';
+import {
+  AssetPageDto,
+  AssetResponseDto,
+  LifecycleTransitionDto,
+  PendingDeletionPageDto,
+  TrashPageDto,
+} from './dto/asset-response.dto.js';
+import { lifecycleEtag, parsePageQuery } from './asset-lifecycle-contract.js';
 import { MAX_UPLOAD_BYTES } from '../storage/image-limits.js';
 import type { ActorRequest } from '../auth/request-auth.js';
 import type { AuthenticatedActor } from '../auth/auth-session.service.js';
@@ -91,11 +102,60 @@ export class AssetsController {
     summary: 'List owned assets',
   })
   @ApiOkResponse({
-    type: AssetResponseDto,
-    isArray: true,
+    type: AssetPageDto,
   })
-  findAll(@Req() request: ActorRequest): Promise<AssetResponseDto[]> {
-    return this.assetsService.findAll(requireAssetActor(request));
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 50 })
+  @ApiQuery({ name: 'cursor', required: false, type: String })
+  findAll(@Req() request: ActorRequest) {
+    const actor = requireAssetActor(request);
+    return this.assetsService.findPage(
+      actor,
+      'active',
+      parsePageQuery(request.raw.url ?? '', actor.userId, 'active'),
+    );
+  }
+
+  @Get('trash')
+  @ApiOperation({ summary: 'List owned trashed assets' })
+  @ApiOkResponse({ type: TrashPageDto })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 50 })
+  @ApiQuery({ name: 'cursor', required: false, type: String })
+  findTrash(@Req() request: ActorRequest) {
+    const actor = requireAssetActor(request);
+    return this.assetsService.findPage(
+      actor,
+      'trash',
+      parsePageQuery(request.raw.url ?? '', actor.userId, 'trash'),
+    );
+  }
+
+  @Get('deletions')
+  @ApiOperation({ summary: 'List owned pending deletion receipts' })
+  @ApiOkResponse({ type: PendingDeletionPageDto })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 50 })
+  @ApiQuery({ name: 'cursor', required: false, type: String })
+  findPendingDeletions(@Req() request: ActorRequest) {
+    const actor = requireAssetActor(request);
+    return this.assetsService.findPendingDeletions(
+      actor,
+      parsePageQuery(request.raw.url ?? '', actor.userId, 'pending-deletions'),
+    );
+  }
+
+  @Get('trash/:assetId/thumbnail')
+  @ApiOperation({ summary: 'View an owned Trash thumbnail' })
+  @ApiProduces('image/jpeg')
+  @Header('Cache-Control', 'no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async getTrashThumbnail(
+    @Req() request: ActorRequest,
+    @Param('assetId', new ParseUUIDPipe()) assetId: string,
+  ): Promise<StreamableFile> {
+    const file = await this.assetsService.getTrashThumbnail(
+      requireAssetActor(request),
+      assetId,
+    );
+    return this.toStreamableFile(file);
   }
 
   @Post('upload')
@@ -136,7 +196,10 @@ export class AssetsController {
     status: 415,
     description: 'Unsupported or invalid image.',
   })
-  async upload(@Req() request: ActorRequest): Promise<AssetResponseDto> {
+  async upload(
+    @Req() request: ActorRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<AssetResponseDto> {
     const actor = requireAssetActor(request);
     await this.assetsService.assertUploadReady();
     if (!request.isMultipart()) {
@@ -182,7 +245,7 @@ export class AssetsController {
       void forwarding.catch(() => undefined);
 
       try {
-        return await this.assetsService.upload(actor, {
+        const created = await this.assetsService.upload(actor, {
           filename: file.filename,
           mimeType: file.mimetype,
           stream: uploadStream,
@@ -198,6 +261,8 @@ export class AssetsController {
             }
           },
         });
+        reply.header('ETag', lifecycleEtag(created.id, '0'));
+        return created;
       } finally {
         if (!uploadStream.readableEnded) {
           file.file.destroy();
@@ -235,8 +300,58 @@ export class AssetsController {
     @Req() request: ActorRequest,
     @Param('assetId', new ParseUUIDPipe())
     assetId: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<AssetResponseDto> {
-    return this.assetsService.findById(requireAssetActor(request), assetId);
+    return this.assetsService
+      .findByIdWithVersion(requireAssetActor(request), assetId)
+      .then(({ body, version }) => {
+        reply.header('ETag', lifecycleEtag(assetId, version));
+        return body;
+      });
+  }
+
+  @Post(':assetId/trash')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Move an owned asset to Trash' })
+  @ApiOkResponse({ type: LifecycleTransitionDto })
+  async trash(
+    @Req() request: ActorRequest,
+    @Param('assetId', new ParseUUIDPipe()) assetId: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const actor = requireAssetActor(request);
+    if (request.body !== undefined)
+      throw new BadRequestException('Invalid request');
+    const result = await this.assetsService.transition(
+      actor,
+      assetId,
+      'trashed',
+      request.headers['if-match'],
+    );
+    reply.header('ETag', lifecycleEtag(assetId, result.lifecycle_version));
+    return result;
+  }
+
+  @Post(':assetId/restore')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Restore an owned asset from Trash' })
+  @ApiOkResponse({ type: LifecycleTransitionDto })
+  async restore(
+    @Req() request: ActorRequest,
+    @Param('assetId', new ParseUUIDPipe()) assetId: string,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const actor = requireAssetActor(request);
+    if (request.body !== undefined)
+      throw new BadRequestException('Invalid request');
+    const result = await this.assetsService.transition(
+      actor,
+      assetId,
+      'active',
+      request.headers['if-match'],
+    );
+    reply.header('ETag', lifecycleEtag(assetId, result.lifecycle_version));
+    return result;
   }
 
   @Get(':assetId/original')

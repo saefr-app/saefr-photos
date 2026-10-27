@@ -30,7 +30,7 @@ const secret = 'password=private-value /private/photos/original.jpg';
 
 describe('Safe HTTP errors (e2e)', () => {
   let app: NestFastifyApplication;
-  const findAll = vi.fn();
+  const findPage = vi.fn();
   const findFileById = vi.fn();
   const openOriginal = vi.fn();
   const openThumbnail = vi.fn();
@@ -47,7 +47,7 @@ describe('Safe HTTP errors (e2e)', () => {
       .overrideProvider(RequestAuthenticator)
       .useValue(assetAuthenticator)
       .overrideProvider(AssetsRepository)
-      .useValue({ findAll, findFileById })
+      .useValue({ findPage, findFileById })
       .overrideProvider(LocalStorageService)
       .useValue({ openOriginal, openThumbnail })
       .compile();
@@ -77,7 +77,7 @@ describe('Safe HTTP errors (e2e)', () => {
   });
 
   it('hides database error text while logging a safe route and code', async () => {
-    findAll.mockRejectedValueOnce(
+    findPage.mockRejectedValueOnce(
       Object.assign(new Error(secret), { code: '28P01' }),
     );
 
@@ -248,7 +248,7 @@ describe('Safe HTTP errors (e2e)', () => {
   );
 
   it('sanitizes an arbitrary HTTP exception message', async () => {
-    findAll.mockRejectedValueOnce(new HttpException(secret, 400));
+    findPage.mockRejectedValueOnce(new HttpException(secret, 400));
 
     const response = await app.inject({
       headers: assetHeaders(),
@@ -266,7 +266,7 @@ describe('Safe HTTP errors (e2e)', () => {
   });
 
   it('sanitizes a server-side HTTP exception message', async () => {
-    findAll.mockRejectedValueOnce(new HttpException(secret, 500));
+    findPage.mockRejectedValueOnce(new HttpException(secret, 500));
 
     const response = await app.inject({
       headers: assetHeaders(),

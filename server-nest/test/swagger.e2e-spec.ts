@@ -115,4 +115,45 @@ describe('Swagger documentation (e2e)', () => {
       },
     });
   });
+
+  it('documents paginated gallery, Trash and pending-deletion responses', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/docs-json',
+      headers: assetHeaders(),
+    });
+    expect(response.statusCode).toBe(200);
+    const document = response.json() as {
+      paths: Record<string, unknown>;
+      components: { schemas: Record<string, unknown> };
+    };
+    for (const [path, schema] of [
+      ['/api/v1/assets', 'AssetPageDto'],
+      ['/api/v1/assets/trash', 'TrashPageDto'],
+      ['/api/v1/assets/deletions', 'PendingDeletionPageDto'],
+    ]) {
+      expect(document.paths[path]).toMatchObject({
+        get: {
+          responses: {
+            200: {
+              content: {
+                'application/json': {
+                  schema: { $ref: `#/components/schemas/${schema}` },
+                },
+              },
+            },
+          },
+        },
+      });
+      expect(document.components.schemas[schema]).toMatchObject({
+        properties: { items: { type: 'array' }, next_cursor: {} },
+      });
+    }
+    expect(document.paths['/api/v1/assets/{assetId}/trash']).toMatchObject({
+      post: { responses: { 200: {} } },
+    });
+    expect(document.paths['/api/v1/assets/{assetId}/restore']).toMatchObject({
+      post: { responses: { 200: {} } },
+    });
+  });
 });

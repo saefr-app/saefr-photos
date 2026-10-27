@@ -153,7 +153,10 @@ describe('AssetsRepository with disposable PostgreSQL 18', () => {
     });
     expect(created.created_at).toBeInstanceOf(Date);
     expect(created).not.toHaveProperty('storage_path');
-    expect(await repository.findById(input.id, ownerId)).toEqual(created);
+    expect(await repository.findById(input.id, ownerId)).toEqual({
+      ...created,
+      lifecycle_version: '0',
+    });
     expect(await repository.findFileById(input.id, ownerId)).toEqual({
       id: input.id,
       mime_type: input.mime_type,

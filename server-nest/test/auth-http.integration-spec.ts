@@ -207,7 +207,7 @@ describe('M10 browser authentication on disposable PostgreSQL and a real localho
       headers: { Cookie: cookie },
     });
     expect(list.status).toBe(200);
-    expect(await list.json()).toEqual([]);
+    expect(await list.json()).toEqual({ items: [], next_cursor: null });
     const invalidId = await request('/api/v1/assets/id/thumbnail', {
       headers: { Cookie: cookie },
     });

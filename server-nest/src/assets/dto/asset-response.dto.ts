@@ -30,3 +30,75 @@ export class AssetResponseDto {
   })
   created_at!: string;
 }
+
+export class AssetPageItemDto extends AssetResponseDto {
+  @ApiProperty({ example: '0', description: 'Decimal lifecycle version' })
+  lifecycle_version!: string;
+}
+
+export class TrashPageItemDto extends AssetPageItemDto {
+  @ApiProperty({
+    format: 'date-time',
+    example: '2026-10-26T10:10:00.123456Z',
+  })
+  trashed_at!: string;
+}
+
+export class AssetPageDto {
+  @ApiProperty({ type: [AssetPageItemDto] })
+  items!: AssetPageItemDto[];
+
+  @ApiProperty({ nullable: true, type: String, example: null })
+  next_cursor!: string | null;
+}
+
+export class TrashPageDto {
+  @ApiProperty({ type: [TrashPageItemDto] })
+  items!: TrashPageItemDto[];
+
+  @ApiProperty({ nullable: true, type: String, example: null })
+  next_cursor!: string | null;
+}
+
+export class PendingDeletionDto {
+  @ApiProperty({ format: 'uuid' })
+  asset_id!: string;
+
+  @ApiProperty({ enum: ['pending'], example: 'pending' })
+  status!: 'pending';
+
+  @ApiProperty({ format: 'date-time', example: '2026-10-26T10:15:00.123456Z' })
+  requested_at!: string;
+
+  @ApiProperty({ nullable: true, type: String, example: null })
+  completed_at!: null;
+
+  @ApiProperty({ nullable: true, type: String, example: 'storage_unavailable' })
+  last_error_code!: string | null;
+}
+
+export class PendingDeletionPageDto {
+  @ApiProperty({ type: [PendingDeletionDto] })
+  items!: PendingDeletionDto[];
+
+  @ApiProperty({ nullable: true, type: String, example: null })
+  next_cursor!: string | null;
+}
+
+export class LifecycleTransitionDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ enum: ['active', 'trashed'], example: 'trashed' })
+  state!: 'active' | 'trashed';
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-10-26T10:10:00.123456Z',
+  })
+  trashed_at!: string | null;
+
+  @ApiProperty({ example: '5', description: 'Decimal lifecycle version' })
+  lifecycle_version!: string;
+}

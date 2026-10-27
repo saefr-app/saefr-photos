@@ -30,6 +30,8 @@ const PUBLIC_MESSAGES: Readonly<Record<number, readonly string[]>> = {
     'Username already exists',
     'Account cannot be disabled',
   ],
+  412: ['Lifecycle version conflict'],
+  428: ['Lifecycle version required'],
   429: ['Too many requests'],
   413: ['File too large'],
   415: [
@@ -39,7 +41,11 @@ const PUBLIC_MESSAGES: Readonly<Record<number, readonly string[]>> = {
     'Invalid or unsupported image',
     'Unable to decode image',
   ],
-  503: ['Database unavailable', 'Asset access is unavailable'],
+  503: [
+    'Database unavailable',
+    'Asset access is unavailable',
+    'Service unavailable',
+  ],
 };
 
 const STATUS_LABELS: Readonly<Record<number, string>> = {
@@ -48,6 +54,8 @@ const STATUS_LABELS: Readonly<Record<number, string>> = {
   403: 'Forbidden',
   404: 'Not Found',
   409: 'Conflict',
+  412: 'Precondition Failed',
+  428: 'Precondition Required',
   429: 'Too Many Requests',
   413: 'Payload Too Large',
   415: 'Unsupported Media Type',
@@ -60,6 +68,11 @@ const ROUTES = new Set([
   '/health/ready',
   '/api/v1/assets',
   '/api/v1/assets/upload',
+  '/api/v1/assets/trash',
+  '/api/v1/assets/deletions',
+  '/api/v1/assets/trash/:assetId/thumbnail',
+  '/api/v1/assets/:assetId/trash',
+  '/api/v1/assets/:assetId/restore',
   '/api/v1/assets/:assetId',
   '/api/v1/assets/:assetId/original',
   '/api/v1/assets/:assetId/thumbnail',

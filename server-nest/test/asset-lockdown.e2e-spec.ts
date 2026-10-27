@@ -21,7 +21,9 @@ describe('production early asset authorization', () => {
       .overrideProvider(RequestAuthenticator)
       .useValue({ resolve: resolveActor })
       .overrideProvider(AssetsService)
-      .useValue({ findAll: vi.fn().mockResolvedValue([]) })
+      .useValue({
+        findPage: vi.fn().mockResolvedValue({ items: [], next_cursor: null }),
+      })
       .compile();
     app =
       fixture.createNestApplication<NestFastifyApplication>(
@@ -77,7 +79,7 @@ describe('production early asset authorization', () => {
       resolveActor.mockResolvedValue({ ...assetActor, role });
       const list = await app.inject({ method: 'GET', url: '/api/v1/assets/' });
       expect(list.statusCode).toBe(200);
-      expect(list.json()).toEqual([]);
+      expect(list.json()).toEqual({ items: [], next_cursor: null });
       resolveActor.mockResolvedValue({
         ...assetActor,
         role,

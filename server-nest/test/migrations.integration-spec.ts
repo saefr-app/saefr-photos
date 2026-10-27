@@ -620,11 +620,19 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     } as DatabaseService);
     const owner = '00000000-0000-4000-8000-000000000011';
     expect(await assets.findAll(owner)).toEqual([]);
+    expect(await assets.findPage(owner, 'active', 50, null)).toEqual([]);
+    expect(await assets.findPage(owner, 'trash', 50, null)).toEqual([]);
     expect(
       await assets.findById('00000000-0000-4000-8000-000000000001', owner),
     ).toBeUndefined();
     expect(
       await assets.findFileById('00000000-0000-4000-8000-000000000001', owner),
+    ).toBeUndefined();
+    expect(
+      await assets.findTrashFileById(
+        '00000000-0000-4000-8000-000000000001',
+        owner,
+      ),
     ).toBeUndefined();
     const storage = {
       openOriginal: async () => {
