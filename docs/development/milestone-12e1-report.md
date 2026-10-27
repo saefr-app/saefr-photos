@@ -1,6 +1,6 @@
 # M12E.1 — Internal permanent-deletion executor
 
-- **Status:** Implemented and locally plus hosted-ext4 verified on `feat/m12-asset-lifecycle`; independent destructive-core review and M12E.2 HTTP activation remain separate gates.
+- **Status:** Astra's destructive-core review found a cancellation/deadline race. The narrow correction and local regressions passed; hosted ext4 verification of the correction and focused independent re-review remain gates before M12E.2.
 - **Base:** M12D checkpoint `29858cddb974fe2243b3336e4acbcb7784ba0195`.
 - **Date:** 2026-10-27.
 
@@ -14,10 +14,19 @@ For each immutable target, the executor rechecks the claim, the full-microsecond
 
 `AssetsModule` registers the internal executor and repository for future approved integration. **No public DELETE, retry route, deletion CLI, scheduler, BullMQ worker or automatic expiry is added.** The M12D pending-deletion listing remains read-only. `LocalStorageProvider` advertises the exact-removal and durability mechanics only alongside the mandatory live `linux-ext4-v1` binding verification. Unsupported or unverified storage still fails closed.
 
+### Astra review correction
+
+The independent review identified a MEDIUM execution-control race: cancellation or the 30-second start budget could occur while PostgreSQL renewal or binding verification was pending, after which the executor still dispatched original removal. The eventual `pending` result could not undo that newly started operation. This violated the approved rule against starting further filesystem work after cancellation or budget exhaustion; it did not establish a journal-authority bypass.
+
+The executor now uses one synchronous AbortSignal/monotonic-deadline predicate. It checks before and after awaited preflight, claim confirmation and renewal, and again after asynchronous authority verification immediately before each exact removal and persistence call. A successful renewal does not extend the original deadline or authorize provider dispatch after cancellation. Already-issued provider calls still drain before their local slot is released; partial work remains pending for explicit retry. The 60-second PostgreSQL token and all target, binding and durability checks are unchanged.
+
+Seven focused unit cases use controlled promise barriers and a controlled monotonic clock: cancellation during renewal; deadline passage during renewal; cancellation during binding verification; cancellation after original removal but before persistence; cancellation before thumbnail removal; deadline passage before thumbnail persistence; and ordinary successful completion. The already-issued removal case verifies that its promise drains before return. The existing disposable-PostgreSQL test also verifies slot retention while two provider calls are blocked and one request is cancelled. These tests assert no newly dispatched removal or persistence and no false completion in each stopped state.
+
 ## Files changed
 
 - `server-nest/src/assets/asset-deletion.executor.ts` (new), `asset-deletion.repository.ts`, `assets.module.ts`: execution orchestration, exact-timestamp journal reads and internal dependency injection.
 - `server-nest/src/storage/local-storage.provider.ts`, `storage-binding.service.ts`, `storage-provider.ts`: verified-profile capabilities and expected-binding checks inside exact removal and directory persistence; other provider mechanics remain unchanged.
+- `server-nest/src/assets/asset-deletion.executor.spec.ts` (correction): deterministic cancellation, deadline and drain regressions.
 - `server-nest/test/asset-deletion-executor.integration-spec.ts` (new): isolated PostgreSQL and synthetic temporary-directory fault and concurrency tests.
 - `server-nest/test/storage-native-http.integration-spec.ts`, `native-deletion-child.mjs` (new), `.github/workflows/m12c-native-ext4.yml`: guarded hosted ext4 journal execution, repeat absence, process-kill recovery and workflow trigger.
 - `docs/architecture.md`, `docs/roadmap.md`, `server-nest/README.md`, this report: current feature-branch status and operational limits.
@@ -28,25 +37,27 @@ No migration, schema type, authentication code or public asset route changed.
 
 All commands below run from `server-nest/` with Node.js 24. PostgreSQL tests use only `test/run-integration.mjs`: a randomly named, labeled `postgres:18` container with tmpfs data, generated isolated credentials and a random localhost port. It verifies identity before SQL and removes its own container after the run. Synthetic file tests use private `/tmp` directories. Native ext4 runs only on the guarded GitHub-hosted disposable VM workflow.
 
-| Check                                            | Result                                                                                                                                                                                 |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run build`                                  | PASS, including native helper build                                                                                                                                                    |
-| `npm run typecheck`                              | PASS                                                                                                                                                                                   |
-| `npm run lint`                                   | PASS                                                                                                                                                                                   |
-| `npm run test`                                   | PASS: 146 unit cases, 20 files                                                                                                                                                         |
-| `npm run test:e2e`                               | PASS: 59 HTTP cases, 8 files                                                                                                                                                           |
-| `npm run test:integration`                       | PASS: 241 cases across 14 files, with 5 native-only cases skipped; disposable container removed                                                                                        |
-| `npm run test:migrations`                        | PASS: 82 cases in one file; included within the integration total                                                                                                                      |
-| `npm run test:runtime-smoke`                     | PASS: invalid configuration and unavailable authentication database exit safely                                                                                                        |
-| `npm run test:native`                            | PASS: six synthetic observer protocol cases; not ext4 certification                                                                                                                    |
-| Hosted native ext4 deletion conformance          | PASS: [final run 40516191176](https://github.com/saefr-app/saefr-photos/actions/runs/40516191176) at `f45c18c`; five PostgreSQL/native cases, including the executor process-kill test |
-| Focused Prettier, Markdown links, Git whitespace | PASS: changed files formatted, 23 relative links resolved, tracked/new-file whitespace clean                                                                                           |
+| Check                                            | Result                                                                                                                                                    |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build`                                  | PASS, including native helper build                                                                                                                       |
+| `npm run typecheck`                              | PASS                                                                                                                                                      |
+| `npm run lint`                                   | PASS                                                                                                                                                      |
+| `npm run test`                                   | PASS after correction: 153 unit cases, 21 files, including 7 new executor regressions                                                                     |
+| `npm run test:e2e`                               | PASS: 59 HTTP cases, 8 files                                                                                                                              |
+| `npm run test:integration`                       | PASS: 241 cases across 14 files, with 5 native-only cases skipped; disposable container removed                                                           |
+| `npm run test:migrations`                        | PASS: 82 cases in one file; included within the integration total                                                                                         |
+| `npm run test:runtime-smoke`                     | PASS: invalid configuration and unavailable authentication database exit safely                                                                           |
+| `npm run test:native`                            | PASS: six synthetic observer protocol cases; not ext4 certification                                                                                       |
+| Hosted native ext4 deletion conformance          | Previous revision PASS: [run 40516191176](https://github.com/saefr-app/saefr-photos/actions/runs/40516191176) at `f45c18c`; corrective commit run pending |
+| Focused Prettier, Markdown links, Git whitespace | PASS: changed files formatted, 23 relative links resolved, tracked/new-file whitespace clean                                                              |
 
 An initial integration run failed one new fixture that inserted `asset` columns positionally; the MIME type landed in an integer column. The fixture now names its columns. Subsequent full runs passed 235, 237 and 240 cases as coverage grew. The final post-binding-check run passed all 241 cases. Every owned disposable container was removed.
 
 The new synthetic tests exercise exact targets and extension, neighbor preservation, authoritative absence, partial original/thumbnail state, unlink and directory-sync faults, unexpected symlink, missing root, anchor mismatch including a rebind at provider pin, unsupported capabilities, live asset, bounded slots under cancellation, claim overlap/takeover, a changed microsecond journal field during I/O, database loss after original I/O, completion failure and lost completion acknowledgement. Existing M12B tests cover separate PostgreSQL pools, row-lock expiry, stale renewal/completion/failure and historical schema validation. The hosted test adds actual ext4 removal and process-kill points before first unlink, after original removal and after both removals, followed by explicit expiry simulation and repeat-safe recovery. A process kill does **not** prove hardware power-loss durability.
 
 The first hosted deletion run [40515734319](https://github.com/saefr-app/saefr-photos/actions/runs/40515734319) passed at `c566d5d48b3976056b8eb8956fd1acd6eecfeb31`. A test-only follow-up `f45c18ca36096f4288d5289ade54a5ec0f3fc5c5` added explicit pre-retry file-state assertions at each process-kill point. The final hosted [run 40516191176](https://github.com/saefr-app/saefr-photos/actions/runs/40516191176) passed five native PostgreSQL cases with those assertions. Its log confirms exact removal and authoritative absence, copied-marker/missing-mount and swapped-role rejection, removal of its owned PostgreSQL container, and removal of both disposable ext4 mounts and image files. The ext4 fixture ran as a non-root application process inside the guarded GitHub-hosted Ubuntu VM. This is process-kill and normal directory-sync evidence; no VM power-loss test was executed.
+
+The corrective local run passed `npm run build`, `npm run typecheck`, `npm run lint`, `npm run test`, `npm run test:e2e`, `npm run test:integration`, `npm run test:migrations`, `npm run test:runtime-smoke` and `npm run test:native`. Focused executor tests passed 7/7. The integration runner reported 241 passed and 5 native-only skipped, and removed its owned container; the migration-only runner passed 82/82 and removed its owned container. Focused Prettier initially flagged the new unit file, which was formatted and rechecked successfully. The prior hosted run does not certify the correction; a new run is required at the corrective commit.
 
 ## Safety and remaining gates
 

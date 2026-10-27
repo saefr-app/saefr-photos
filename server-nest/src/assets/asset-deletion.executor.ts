@@ -83,9 +83,10 @@ export class AssetDeletionExecutor {
     const receipt = await this.journal.findExecutionAuthority(assetId, ownerId);
     if (!receipt) return 'missing';
     if (receipt.completed_at) return 'completed';
+    if (!this.canStart(deadline, signal)) return 'pending';
     if (!this.supported() || !(await this.verify(receipt)))
       return 'unavailable';
-    if (signal?.aborted || performance.now() >= deadline) return 'pending';
+    if (!this.canStart(deadline, signal)) return 'pending';
 
     const claim = await this.journal.claim(assetId, ownerId);
     if (claim.status !== 'claimed') {
@@ -99,8 +100,10 @@ export class AssetDeletionExecutor {
     // A successful UPDATE acknowledgement is supplemented by a fresh read;
     // claim() itself independently confirms a lost acknowledgement.
     try {
+      if (!this.canStart(deadline, signal)) return 'pending';
       if (!(await this.journal.confirmClaim(assetId, ownerId, token)))
         return 'pending';
+      if (!this.canStart(deadline, signal)) return 'pending';
       const current = await this.journal.findExecutionAuthority(
         assetId,
         ownerId,
@@ -111,6 +114,7 @@ export class AssetDeletionExecutor {
         !(await this.verify(current))
       )
         return this.fail(assetId, ownerId, token, 'storage_identity_mismatch');
+      if (!this.canStart(deadline, signal)) return 'pending';
 
       for (const role of ['originals', 'thumbnails'] as const) {
         if (
@@ -124,6 +128,8 @@ export class AssetDeletionExecutor {
             token,
             'storage_identity_mismatch',
           );
+        // No await may separate this check from the provider dispatch.
+        if (!this.canStart(deadline, signal)) return 'pending';
 
         const outcome = await this.storage.removeExact(
           {
@@ -152,6 +158,7 @@ export class AssetDeletionExecutor {
           !(await this.mayContinue(assetId, ownerId, token, deadline, signal))
         )
           return 'pending';
+        if (!this.canStart(deadline, signal)) return 'pending';
         const persistence = await this.storage.confirmDirectoryPersistence(
           role,
           current,
@@ -227,9 +234,14 @@ export class AssetDeletionExecutor {
     deadline: number,
     signal?: AbortSignal,
   ): Promise<boolean> {
-    if (signal?.aborted || performance.now() >= deadline) return false;
+    if (!this.canStart(deadline, signal)) return false;
     // This short transaction checks PostgreSQL time after any row-lock wait.
-    return this.journal.renew(assetId, ownerId, token);
+    const renewed = await this.journal.renew(assetId, ownerId, token);
+    return renewed && this.canStart(deadline, signal);
+  }
+
+  private canStart(deadline: number, signal?: AbortSignal): boolean {
+    return !signal?.aborted && performance.now() < deadline;
   }
 
   private async fail(
