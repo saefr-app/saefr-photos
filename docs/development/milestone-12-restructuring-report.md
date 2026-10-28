@@ -1,6 +1,6 @@
 # M12 repository restructuring report
 
-**Status:** Local, uncommitted layout change on `feat/m12-asset-lifecycle` from `5823df5377d77d2a56d48133ae91371b21e63300`; awaiting independent review. Draft PR #9 remains open. This report does not authorize real-data migration, storage adoption, deployment or merge.
+**Status:** Independently reviewed and committed on `feat/m12-asset-lifecycle` as `8571badf700849c8120ac6be51552c5b0fbe1ccb`. Draft PR #9 remains open. This report does not authorize real-data migration, storage adoption, deployment or merge.
 
 ## Scope and inventory
 
@@ -31,8 +31,16 @@ Checks ran from the new `server/` with Node.js `v24.22.0` and Docker Server `29.
 | `npm run test:runtime-smoke` | PASS: invalid configuration and unavailable authentication database exited safely.                                                     |
 | `npm run test:native`        | PASS: six local observer tests; not ext4 certification.                                                                                |
 
-Focused Prettier passed on all changed Markdown and workflow files. All 165 repository-relative Markdown links resolved. `git diff --check` passed for tracked changes, and read-only no-index whitespace checks passed for all 139 untracked files (138 moved backend files plus this report). The hosted ext4 certification from [run 40643838258](https://github.com/saefr-app/saefr-photos/actions/runs/40643838258) applies to the prior implementation checkpoint. A fresh hosted run against this layout is still required before M12 merge review; it was **not** run as part of this local restructuring.
+Focused Prettier passed on all changed Markdown and workflow files. All 165 repository-relative Markdown links resolved. `git diff --check` passed for tracked changes, and read-only no-index whitespace checks passed for all 139 untracked files (138 moved backend files plus this report). The hosted ext4 certification from [run 40643838258](https://github.com/saefr-app/saefr-photos/actions/runs/40643838258) applied to the prior implementation checkpoint. At the time of local restructuring, fresh hosted certification for the new layout was pending; it was **not** part of those local checks.
+
+## Independent review and post-checkpoint hosted certification
+
+The independent Astra restructuring review returned **PASS** with no confirmed blocker. It verified the 138-file mapping, 16-file legacy retirement, file modes, configuration paths, CI guards and disposable test isolation. The reviewed layout was committed as `8571badf700849c8120ac6be51552c5b0fbe1ccb` and pushed to the feature branch.
+
+[Hosted native run 40649284746](https://github.com/saefr-app/saefr-photos/actions/runs/40649284746) completed **SUCCESS** against that exact implementation SHA. The GitHub-hosted Ubuntu 24.04 job used Node.js 24, `server/package-lock.json` for npm caching, and built the relocated native helper from `server/`. Its disposable ext4 checks passed identity, marker, exact-byte upload/read/removal, remount identity, swapped-role and missing-mount rejection, and three configured process-kill cases. The restricted non-root container check ran successfully. The native PostgreSQL/HTTP suite passed **6 tests in 1 file**, covering owner-only media, wrong database/storage pairing, committed deletion and process-kill recovery, and owner-authorized deletion with partial-removal retry. The log confirms removal of its owned PostgreSQL 18 container and disposable ext4 mounts and image files.
+
+The run recorded a nonblocking GitHub Actions warning that `actions/checkout@v4` and `actions/setup-node@v4` target deprecated Node.js 20 internally and were forced to run on Node.js 24. This hosted run certifies the relocated Linux/ext4 profile only; it does not establish hardware power-loss behavior, Windows, macOS, NAS, real-data upgrade or deployment readiness. The subsequent evidence-only documentation commit is not the implementation SHA tested by this run.
 
 ## Remaining gates
 
-Independent review and a separately approved checkpoint are required before updating draft PR #9. M12 is not merged or deployed. No real-data upgrade, matching database/media backup and restore rehearsal, storage adoption or production TLS/proxy validation has been approved. Legacy NULL-owned assets remain quarantined. M13 background maintenance and automatic Trash expiry are future work. The preserved old ignored build cache may be removed only in a separate cleanup decision; it is not part of the tracked backend.
+Final post-restructuring review and a separate merge decision remain required for draft PR #9. M12 is not merged or deployed. No real-data upgrade, matching database/media backup and restore rehearsal, storage adoption or production TLS/proxy validation has been approved. Legacy NULL-owned assets remain quarantined. M13 background maintenance and automatic Trash expiry are future work. The preserved old ignored build cache may be removed only in a separate cleanup decision; it is not part of the tracked backend.
