@@ -32,7 +32,9 @@
     "storage:reestablish-location": "npm run build && node dist/storage/storage-operator-cli.js reestablish-location",
     "auth:bootstrap": "npm run build && node dist/users/operator-cli.js bootstrap",
     "auth:recover": "npm run build && node dist/users/operator-cli.js recover",
-    "auth:prune-sessions": "npm run build && node dist/users/operator-cli.js prune"
+    "auth:prune-sessions": "npm run build && node dist/users/operator-cli.js prune",
+    "start:worker": "node dist/worker/main.js",
+    "test:redis": "npm run build && node ./test/run-redis.mjs"
   },
   "dependencies": {
     "@fastify/multipart": "^10.1.4",
@@ -43,6 +45,7 @@
     "@nestjs/platform-fastify": "^12.1.3",
     "@nestjs/swagger": "^12.0.2",
     "argon2": "^0.45.1",
+    "bullmq": "5.81.5",
     "kysely": "^0.29.6",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
