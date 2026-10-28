@@ -26,7 +26,7 @@
 6. Maintainer reviews changes, asks questions, verifies important behavior locally. Revise if necessary.
 7. With explicit approval: commit (focused conventional commit message), push. Do not automatically start the next milestone.
 
-## Local verification commands (from `server-nest/`)
+## Local verification commands (from `server/`)
 
 ```bash
 npm ci

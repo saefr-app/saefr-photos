@@ -34,7 +34,7 @@ M8 introduces a standalone, explicit migration command for PostgreSQL 18. Starti
 
 ## Architecture and version history
 
-- Version files live in `server-nest/src/database/migrations/versions/`. The first is `202610170001_initial_asset.ts`.
+- Version files live in `server/src/database/migrations/versions/`. The first is `202610170001_initial_asset.ts`.
 - `migration-provider.ts` registers immutable version files through Kysely's standard `MigrationProvider` interface. Explicit ESM imports work in both compiled Node code and Vitest, without filesystem discovery or another dependency.
 - Kysely's `Migrator` orders and executes versions, records successful versions in `public.kysely_migration`, and maintains `public.kysely_migration_lock`. Do not edit or manually insert ledger records.
 - A PostgreSQL session advisory lock serializes the runner's preflight and metadata bootstrap. Kysely retains its own PostgreSQL lock and transaction for pending migrations. The CLI uses a single connection, a five-second connection timeout, a five-second lock timeout and a 30-second statement timeout. Kysely's internal lock acquisition remains bounded by the statement timeout.
@@ -68,7 +68,7 @@ The baseline checks catalog metadata rather than assuming that a table with the 
 
 ## Commands and explicit connection configuration
 
-Run npm commands from `server-nest/` with Node.js 24. Each migration npm command builds the current source before launching the compiled CLI.
+Run npm commands from `server/` with Node.js 24. Each migration npm command builds the current source before launching the compiled CLI.
 
 Supply **all** of these settings through an approved environment or secret mechanism:
 
@@ -108,7 +108,7 @@ Successful versions must not be renamed, edited or removed. Kysely tracks names/
 ## Isolated verification
 
 ```bash
-cd server-nest
+cd server
 npm run build
 npm run typecheck
 npm run lint
@@ -120,7 +120,7 @@ npm run test:migrations
 
 Both integration commands use the M7 disposable PostgreSQL 18 runner. It verifies the container's identity, temporary storage, credentials and localhost port before test SQL. Each migration scenario creates a separate random database within that verified container and drops only that database after closing its connections. The original seven repository tests now install the schema through the migration runner. The migration suite also executes the compiled CLI with explicit test connection settings. No development database or media volume is attached.
 
-Normal completion, test failures and handled signals clean up the container. Abrupt termination can still leave a disposable test container; follow the M7 cleanup instructions in `server-nest/README.md`. Never perform a bulk Docker volume cleanup.
+Normal completion, test failures and handled signals clean up the container. Abrupt termination can still leave a disposable test container; follow the M7 cleanup instructions in `server/README.md`. Never perform a bulk Docker volume cleanup.
 
 ## Future self-hosted Docker deployment (not implemented in M8)
 

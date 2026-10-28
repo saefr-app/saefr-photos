@@ -6,7 +6,7 @@ authorization were merged through [PR #4](https://github.com/saefr-app/saefr-pho
 as `2141bb9` and passed local post-merge verification. Legacy NULL-owned assets
 remain inaccessible. No real-data upgrade or production deployment has occurred.
 Keep the API local until the deployment gates are reviewed. Run npm commands
-from `server-nest/` with Node.js 24.
+from `server/` with Node.js 24.
 
 ## Setup and runtime configuration
 
@@ -15,7 +15,7 @@ npm ci
 npm run start:dev
 ```
 
-Nest loads the root `.env` first, then `server-nest/.env`; the root file takes
+Nest loads the root `.env` first, then `server/.env`; the root file takes
 precedence if both set the same key. Process environment variables take
 precedence over either file. Set `POSTGRES_DB`, `POSTGRES_USER`,
 `POSTGRES_PASSWORD` and an exact `APP_ORIGIN` to nonblank values. Production
@@ -29,7 +29,7 @@ Optional settings and defaults are:
 | `HOST`          | `127.0.0.1`                                           |
 | `PORT`          | `3000`                                                |
 | `NODE_ENV`      | `development` (`test` and `production` also accepted) |
-| `STORAGE_ROOT`  | `../storage` relative to `server-nest/`               |
+| `STORAGE_ROOT`  | `../storage` relative to `server/`                    |
 
 Ports must be integers from 1 to 65535. A relative `STORAGE_ROOT` is resolved
 from the process working directory. Invalid settings stop startup with a

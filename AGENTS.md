@@ -16,12 +16,12 @@ When these documents disagree with working code, report the discrepancy; don't s
 
 ## Current stack and locations
 
-- Active backend: `server-nest/` — Node.js 24, TypeScript (NodeNext/ESM), NestJS 12, Fastify, Kysely with `pg`, PostgreSQL 18, Sharp, Vitest, Swagger/OpenAPI.
-- Original FastAPI/SQLModel implementation: `server/`; retained as a migration reference until explicitly approved for removal.
+- Active and sole maintained backend: `server/` — Node.js 24, TypeScript (NodeNext/ESM), NestJS 12, Fastify, Kysely with `pg`, PostgreSQL 18, Sharp, Vitest, Swagger/OpenAPI.
+- Original FastAPI/SQLModel implementation retired during M12 restructuring; recoverable from Git history.
 - Development PostgreSQL: root `compose.yml`, persisted Docker volume; **contains existing asset metadata**.
 - Local media: root `storage/originals/` and `storage/thumbnails/`; contains **real files that must be preserved**.
-- Nest application composition: `server-nest/src/app.module.ts`. Active modules include `auth`, `users`, `assets`, `storage`, `database` and `health`. Asset routes are mounted behind the reviewed M11 early authentication gate and owner-scoped queries in the merged `integration` source; this does not authorize deployment. Swagger setup: `src/openapi/swagger.ts`.
-- `.nvmrc` currently selects Node.js 24. Run npm commands inside `server-nest/`, not the repository root.
+- Nest application composition: `server/src/app.module.ts`. Active modules include `auth`, `users`, `assets`, `storage`, `database` and `health`. Asset routes are mounted behind the reviewed M11 early authentication gate and owner-scoped queries in the merged `integration` source; this does not authorize deployment. Swagger setup: `src/openapi/swagger.ts`.
+- `.nvmrc` currently selects Node.js 24. Run npm commands inside `server/`, not the repository root.
 
 ## Development standards
 
@@ -48,7 +48,7 @@ When these documents disagree with working code, report the discrepancy; don't s
 1. Check working directory, active branch, `git status`, and relevant project files. Confirm task scope and any blockers.
 2. Give a short plan for nontrivial changes; for destructive or schema-affecting actions, ask approval before execution.
 3. Implement **one milestone at a time** according to its specification. Prefer small, reviewable changes.
-4. Run relevant checks, from `server-nest/`:
+4. Run relevant checks, from `server/`:
    - `npm run build`
    - `npm run test`
    - `npm run test:e2e`

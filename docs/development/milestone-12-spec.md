@@ -948,7 +948,7 @@ External/NAS certification additionally requires isolated disposable mount/expor
 
 ### Verification evidence
 
-From `server-nest/`, run applicable `npm run build`, `npm run typecheck`, `npm run lint`, `npm run test`, `npm run test:e2e`, `npm run test:integration`, `npm run test:migrations` and `npm run test:runtime-smoke`, plus focused formatting, Markdown-link and whitespace checks.
+From `server/`, run applicable `npm run build`, `npm run typecheck`, `npm run lint`, `npm run test`, `npm run test:e2e`, `npm run test:integration`, `npm run test:migrations` and `npm run test:runtime-smoke`, plus focused formatting, Markdown-link and whitespace checks.
 
 Use only the verified disposable PostgreSQL runner, never direct integration Vitest against an unverified target. Filesystem and crash tests use isolated synthetic directories and child processes. Report disposable-resource cleanup.
 

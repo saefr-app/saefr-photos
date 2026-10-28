@@ -14,14 +14,14 @@ Startup validates the exact applied migration history and catalog. The M12 featu
 
 ## Current system
 
-- **HTTP/API:** `server-nest/` — NestJS 12 on Fastify, Node.js 24, TypeScript ESM/NodeNext. The server binds to `127.0.0.1:3000` by default while deployment controls remain unverified.
+- **HTTP/API:** `server/` — the sole maintained backend, using NestJS 12 on Fastify, Node.js 24 and TypeScript ESM/NodeNext. The server binds to `127.0.0.1:3000` by default while deployment controls remain unverified.
 - **Runtime configuration:** Nest ConfigModule loads the existing environment files and validates database, listen, environment, storage and exact `APP_ORIGIN` settings before application initialization. Database name, user, password and application origin are required; host, ports, environment and storage path have explicit defaults. Startup errors do not print configuration values. The migration CLI retains its separate `MIGRATION_POSTGRES_*` configuration and never runs during API startup.
 - **Database:** PostgreSQL 18 with a Kysely query builder and `pg` connection pool; root `compose.yml` starts the **database only**. NestJS currently runs on the host, not in Docker.
 - **Files:** local root `storage/originals/` contains original image bytes; `storage/thumbnails/` contains JPEG previews.
 - **Processing:** Sharp/libvips validates JPEG, PNG, WebP and generates 300px bounding-box JPEG thumbnails (quality 85). Multipart parsing and storage independently enforce a 20 MiB file limit; Sharp rejects images over 40 million pixels and multi-page images.
 - **Documentation:** Swagger is disabled by default in the M10 production composition. Legacy asset OpenAPI behavior remains covered in an isolated test composition.
 - **Errors and logs:** Nest's app-wide exception filter returns stable, sanitized HTTP error bodies. An early media-stream failure clears stale media headers before the JSON error is sent; a failure after headers are sent closes the connection. Unexpected request failures log a known route pattern and allowlisted error category, never raw exception objects. Readiness, storage cleanup, PostgreSQL idle-client and startup failures likewise avoid raw driver messages and filesystem paths.
-- **Legacy code:** `server/` contains the previous FastAPI + SQLModel implementation. The existing PostgreSQL `asset` schema originated there; existing image files remain in `storage/`.
+- **Legacy code:** The previous FastAPI + SQLModel source is retired and recoverable from Git history. The existing PostgreSQL `asset` schema originated there; existing image files remain in `storage/`.
 
 ## Request flow
 
@@ -63,7 +63,7 @@ The base owner-scoped flow is mounted in the merged `integration` application be
 ## Current backend layout
 
 ```text
-server-nest/
+server/
   src/
     main.ts              # app bootstrap, asset boundary, schema readiness
     app.module.ts        # Config, Health, Auth, Users, scoped AssetsModule
@@ -80,7 +80,7 @@ server-nest/
     openapi/             # Swagger setup
   test/                  # mocked HTTP tests and isolated PostgreSQL integration tests
   package.json           # npm scripts and dependencies
-server/                  # legacy Python backend (do not delete yet)
+web/                     # reserved for a future frontend; not scaffolded
 compose.yml              # only PostgreSQL currently
 storage/originals/       # ignored original files (preserve)
 storage/thumbnails/      # ignored generated files (preserve)

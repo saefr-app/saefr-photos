@@ -6,16 +6,16 @@ on:
     branches: [feat/m12-asset-lifecycle]
     paths:
       - ".github/workflows/m12c-native-ext4.yml"
-      - "server-nest/native/**"
-      - "server-nest/src/storage/**"
-      - "server-nest/src/assets/**"
-      - "server-nest/src/auth/auth-session.service.ts"
-      - "server-nest/src/main.ts"
-      - "server-nest/test/storage-native-http.integration-spec.ts"
-      - "server-nest/test/startup-main.integration-spec.ts"
-      - "server-nest/test/run-integration.mjs"
-      - "server-nest/test/native-ext4-certification.*"
-      - "server-nest/test/native-deletion-child.mjs"
+      - "server/native/**"
+      - "server/src/storage/**"
+      - "server/src/assets/**"
+      - "server/src/auth/auth-session.service.ts"
+      - "server/src/main.ts"
+      - "server/test/storage-native-http.integration-spec.ts"
+      - "server/test/startup-main.integration-spec.ts"
+      - "server/test/run-integration.mjs"
+      - "server/test/native-ext4-certification.*"
+      - "server/test/native-deletion-child.mjs"
 
 permissions:
   contents: read
@@ -35,9 +35,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: server-nest/package-lock.json
+          cache-dependency-path: server/package-lock.json
       - name: Build observer and run disposable ext4 checks
-        working-directory: server-nest
+        working-directory: server
         env:
           EXPECTED_RUNNER_ENVIRONMENT: ${{ runner.environment }}
           EXPECTED_RUNNER_OS: ${{ runner.os }}
