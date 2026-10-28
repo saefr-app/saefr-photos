@@ -16,12 +16,12 @@ When these documents disagree with working code, report the discrepancy; don't s
 
 ## Current stack and locations
 
-- Active backend: `server-nest/` — Node.js 24, TypeScript (NodeNext/ESM), NestJS 12, Fastify, Kysely with `pg`, PostgreSQL 18, Sharp, Vitest, Swagger/OpenAPI.
-- Original FastAPI/SQLModel implementation: `server/`; retained as a migration reference until explicitly approved for removal.
+- Active and sole maintained backend: `server/` — Node.js 24, TypeScript (NodeNext/ESM), NestJS 12, Fastify, Kysely with `pg`, PostgreSQL 18, Sharp, Vitest, Swagger/OpenAPI.
+- Original FastAPI/SQLModel implementation retired during M12 restructuring; recoverable from Git history.
 - Development PostgreSQL: root `compose.yml`, persisted Docker volume; **contains existing asset metadata**.
 - Local media: root `storage/originals/` and `storage/thumbnails/`; contains **real files that must be preserved**.
-- Nest application composition: `server-nest/src/app.module.ts`. Active modules include `auth`, `users`, `assets`, `storage`, `database` and `health`. Asset routes are mounted behind the reviewed M11 early authentication gate and owner-scoped queries in the merged `integration` source; this does not authorize deployment. Swagger setup: `src/openapi/swagger.ts`.
-- `.nvmrc` currently selects Node.js 24. Run npm commands inside `server-nest/`, not the repository root.
+- Nest application composition: `server/src/app.module.ts`. Active modules include `auth`, `users`, `assets`, `storage`, `database` and `health`. Asset routes are mounted behind the reviewed M11 early authentication gate and owner-scoped queries in the merged `integration` source; this does not authorize deployment. Swagger setup: `src/openapi/swagger.ts`.
+- `.nvmrc` currently selects Node.js 24. Run npm commands inside `server/`, not the repository root.
 
 ## Development standards
 
@@ -41,13 +41,14 @@ When these documents disagree with working code, report the discrepancy; don't s
 - Do not change git branches, merge, reset, rebase, force-push, commit, push, publish, or deploy without user approval for that operation. `git status`, `git diff`, and read-only git commands are fine.
 - No edits outside the approved milestone scope without explaining and obtaining approval; preserve user changes and check `git status` first. Do not silently discard uncommitted work.
 - M10 authentication and M11 owner-scoped asset authorization are merged into `integration` (M11 through PR #4 at `2141bb9`). Legacy NULL-owned assets remain quarantined. Keep the API bound to localhost. Do not deploy or publicly expose media routes, migrate development data, or map legacy ownership without separate approval and a reviewed recovery plan.
+- M12 manual lifecycle behavior is implemented on `feat/m12-asset-lifecycle` for review, not deployed. Permanent deletion accepts only an owned Trash asset under a committed journal and a verified storage binding. Never exercise these routes, storage-adoption commands or migration commands against development data without separate approval and a reviewed recovery plan.
 
 ## Standard milestone execution
 
 1. Check working directory, active branch, `git status`, and relevant project files. Confirm task scope and any blockers.
 2. Give a short plan for nontrivial changes; for destructive or schema-affecting actions, ask approval before execution.
 3. Implement **one milestone at a time** according to its specification. Prefer small, reviewable changes.
-4. Run relevant checks, from `server-nest/`:
+4. Run relevant checks, from `server/`:
    - `npm run build`
    - `npm run test`
    - `npm run test:e2e`

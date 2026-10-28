@@ -1,5 +1,11 @@
 # Database migrations
 
+## M12 lifecycle foundation (M12B merged; later M12 phases on a draft feature branch)
+
+The immutable `202610260001_asset_lifecycle` version adds `asset.trashed_at` and `asset.lifecycle_version`, the `asset_deletion` journal and an initially empty database-wide `storage_binding` singleton table. The history-aware runner dispatches to a separate exact M12 inspector and retains the historical M8/M10/M11 migrations and inspectors. Fresh installs, M11 upgrades and explicitly baselined legacy upgrades are tested on disposable PostgreSQL 18. Repeated and concurrent execution, schema drift rejection, historical-row preservation and an adopted singleton's preservation are covered. The migration does not assign legacy owners, inspect media or adopt storage.
+
+The M12 feature-branch API starts only with exact supported M11 or M12 schema/history. M12 media and new deletion acceptance require an independently verified adopted originals-and-thumbnails binding; a migrated but unadopted M12 database supports authenticated metadata only. Startup never applies migrations, provisions markers or resumes pending deletion. Older strict binaries cannot serve an M12 schema. An existing installation requires separately approved matching database/media backups, restore rehearsal, migration, storage-pairing evidence and controlled cutover. **Do not run migration or storage operator commands against the development database or media under this documentation.** See the [M12 specification](milestone-12-spec.md) and [M12C operator guide](milestone-12c-storage-operator-guide.md).
+
 ## M11 ownership foundation (Phase 11B; merged into `integration` through PR #4)
 
 The new version `202610220001_asset_ownership` adds nullable UUID `public.asset.owner_id` without a default. It adds a validated, non-deferrable foreign key to `public.app_user(id)` with `ON DELETE RESTRICT` and `ON UPDATE NO ACTION`, a B-tree index on `(owner_id, created_at DESC, id DESC)`, and an enforced `CHECK (owner_id IS NOT NULL) NOT VALID`. Existing rows remain NULL-owned; the check rejects new NULL inserts and updates to old NULL-owned rows until ownership is supplied. It is intentionally unvalidated even on fresh installations.
@@ -28,7 +34,7 @@ M8 introduces a standalone, explicit migration command for PostgreSQL 18. Starti
 
 ## Architecture and version history
 
-- Version files live in `server-nest/src/database/migrations/versions/`. The first is `202610170001_initial_asset.ts`.
+- Version files live in `server/src/database/migrations/versions/`. The first is `202610170001_initial_asset.ts`.
 - `migration-provider.ts` registers immutable version files through Kysely's standard `MigrationProvider` interface. Explicit ESM imports work in both compiled Node code and Vitest, without filesystem discovery or another dependency.
 - Kysely's `Migrator` orders and executes versions, records successful versions in `public.kysely_migration`, and maintains `public.kysely_migration_lock`. Do not edit or manually insert ledger records.
 - A PostgreSQL session advisory lock serializes the runner's preflight and metadata bootstrap. Kysely retains its own PostgreSQL lock and transaction for pending migrations. The CLI uses a single connection, a five-second connection timeout, a five-second lock timeout and a 30-second statement timeout. Kysely's internal lock acquisition remains bounded by the statement timeout.
@@ -62,7 +68,7 @@ The baseline checks catalog metadata rather than assuming that a table with the 
 
 ## Commands and explicit connection configuration
 
-Run npm commands from `server-nest/` with Node.js 24. Each migration npm command builds the current source before launching the compiled CLI.
+Run npm commands from `server/` with Node.js 24. Each migration npm command builds the current source before launching the compiled CLI.
 
 Supply **all** of these settings through an approved environment or secret mechanism:
 
@@ -102,7 +108,7 @@ Successful versions must not be renamed, edited or removed. Kysely tracks names/
 ## Isolated verification
 
 ```bash
-cd server-nest
+cd server
 npm run build
 npm run typecheck
 npm run lint
@@ -114,7 +120,7 @@ npm run test:migrations
 
 Both integration commands use the M7 disposable PostgreSQL 18 runner. It verifies the container's identity, temporary storage, credentials and localhost port before test SQL. Each migration scenario creates a separate random database within that verified container and drops only that database after closing its connections. The original seven repository tests now install the schema through the migration runner. The migration suite also executes the compiled CLI with explicit test connection settings. No development database or media volume is attached.
 
-Normal completion, test failures and handled signals clean up the container. Abrupt termination can still leave a disposable test container; follow the M7 cleanup instructions in `server-nest/README.md`. Never perform a bulk Docker volume cleanup.
+Normal completion, test failures and handled signals clean up the container. Abrupt termination can still leave a disposable test container; follow the M7 cleanup instructions in `server/README.md`. Never perform a bulk Docker volume cleanup.
 
 ## Future self-hosted Docker deployment (not implemented in M8)
 

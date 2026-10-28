@@ -673,43 +673,71 @@ STORAGE_ORIGINALS_PROFILE
 STORAGE_THUMBNAILS_PROFILE
 ```
 
-Retain `STORAGE_ROOT`; layout 1 uses its `originals` and `thumbnails` locations. Each location contains a bounded regular `.saefr-storage.json` marker, for example:
+Retain `STORAGE_ROOT`; layout 1 uses its `originals` and `thumbnails` locations. Each location contains a bounded regular `.saefr-storage.json` marker. Configuration locates candidates; it never supplies proof of physical identity or permission to adopt them.
+
+### Marker version 2
+
+The exact initial Linux/ext4 marker shape is below. Values illustrate encoding only; this example is not adoption evidence or a certified physical observation.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "storage_id": "33333333-3333-4333-8333-333333333333",
   "binding_id": "44444444-4444-4444-8444-444444444444",
-  "role": "originals"
+  "role": "originals",
+  "physical_identity": {
+    "format": "linux-ext4-handle-v1",
+    "profile": "linux-ext4-v1",
+    "filesystem_uuid": "55555555-5555-4555-8555-555555555555",
+    "directory_handle_type": 1,
+    "directory_handle_hex": "0102030405060708",
+    "location_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  }
 }
 ```
 
-The thumbnail marker uses its distinct binding ID and `role: "thumbnails"`. Marker parsing is bounded to 1,024 bytes with exact supported fields, UUIDs and version. Markers are created exclusively with provider-appropriate restrictive permissions and persistence.
+Normative parsing and encoding:
 
-Markers are not credentials. They identify adopted locations but do not defeat malicious cloning or host administration.
+- Read at most 1,025 bytes from the safely opened regular marker file; reject anything exceeding 1,024 bytes, including whitespace. Decode strict UTF-8 without a BOM; reject malformed encoding, invalid JSON, trailing non-whitespace content, duplicate decoded property names at any level, unknown/missing fields, arrays/null in place of objects and wrong value types. JSON whitespace and object-key order are insignificant to readers; never coerce strings/numbers or ignore extra fields.
+- The top-level keys are exactly `version`, `storage_id`, `binding_id`, `role`, `physical_identity`. `version` is the JSON integer value `2`; `role` is exactly `originals` or `thumbnails`. UUIDs are non-nil lowercase ASCII hexadecimal in `8-4-4-4-12` form, with no braces, trimming or case conversion. This lexical rule does not assume a particular UUID generation version. Logical IDs must match the database singleton; role binding IDs remain distinct.
+- For `format: "linux-ext4-handle-v1"`, the nested keys are exactly those shown. `profile` is exactly `linux-ext4-v1` and must match that role's configured profile and the adapter's certified capability/environment checks. These names reserve the initial candidate format/profile; a marker naming them does not certify the environment. Unknown formats/profiles are rejected; future profiles require separately reviewed exact formats and certification, not arbitrary JSON extensions.
+- `filesystem_uuid` is observed from the actual filesystem, with the same canonical UUID representation. `directory_handle_type` is a JSON integer in the signed 32-bit range, supported by the certified adapter. `directory_handle_hex` is lowercase ASCII hex of even length 2–256, representing 1–128 opaque bytes; no prefix, separators or padding. Compare type and decoded bytes exactly, without interpreting inode/generation subfields. Unsupported types or larger native handles fail closed rather than being truncated or hashed into an assumed equivalent.
+- `location_sha256` is exactly 64 lowercase ASCII hex characters encoding the SHA-256 digest defined below. It pins the application-visible location approved at provisioning/cutover; it is not evidence of filesystem identity or a secret.
+- Writers emit compact JSON with keys in the example order, no BOM and exactly one trailing LF, within the same byte limit. Create markers exclusively with restrictive provider permissions and the required file/directory persistence. Only explicitly approved relocation/restoration may re-establish a marker; normal operations never overwrite, repair or regenerate one.
 
-### Validation
+For the initial Linux profile, capture the absolute process working directory at startup. Resolve `STORAGE_ROOT` against it and append the role using POSIX lexical path resolution: collapse repeated `/`, remove `.` and resolve `..`, retaining a single leading `/` and no trailing slash. Use that normalized absolute role path for both observation and I/O, never the unnormalized spelling. Reject NUL, U+0001–U+001F, U+007F and invalid Unicode scalar sequences in path input; do not trim, case-fold or Unicode-normalize path characters. Reject symbolic links in every directory component, including the root's ancestors, instead of following them to obtain a canonical path. Hash exactly the UTF-8 bytes of `saefr-role-location-v1`, one NUL byte, the ASCII role, one NUL byte and the normalized absolute role path, with no trailing NUL/newline. Alternate spellings resolving to the same lexical path have the same fingerprint; a different application-visible path requires controlled cutover even if it reaches the same physical directory. Later platform formats must define their own path rules before certification.
 
-The database singleton is the provenance authority; configuration only locates an already adopted set. Before uploads, media reads or new deletion acceptance, require its identities/layout to match configuration and both observed role bindings. A changed root must identify the same adopted storage through a verified location change, not an unrelated directory with similarly named files. Missing or mismatched provenance fails closed. Metadata-only access remains subject to the existing ownership/lifecycle rules.
+Marker format version **2** is independent of database `storage_layout_version = 1`; neither the singleton nor journal schema changes. Version 1 markers without physical evidence remain unverified. Startup and ordinary media operations must never upgrade them implicitly.
 
-Validate each role independently against the database anchor, configuration and applicable journal values. Provider checks must account for:
+Markers are not credentials. They detect accidental copied-marker substitution only by comparison with fresh physical observations. No additional mandatory external runtime installation receipt is required.
 
-- Volume/share identity where available.
-- Cached metadata.
-- Missing mounts exposing underlying directories.
-- Reparse points and symlinked parents.
-- Replacement drives at the same path.
-- Reconnects and stale filesystem handles.
+### Validation and physical observation
 
-Do not require both roles to have the same device number. Normal operations never create missing role directories or markers. Revalidate the relevant binding before removal and persistence operations; startup-only validation is insufficient.
+The database singleton is the logical provenance authority. Before uploads, media reads or new deletion acceptance, require its identities/layout to match configuration and both observed role bindings. A changed root must identify the same adopted storage through a verified location change, not an unrelated directory with similarly named files. Physical identity establishes continuity after adoption; it cannot prove the historical correctness of first pairing.
 
-The provider's protection against path replacement must be explicit. Handle-relative operations are preferred where supported. Ordinary path checks do not defeat hostile concurrent filesystem writers; certified profiles require the documented trusted/exclusive namespace assumptions.
+For each role independently, the provider must safely open the actual role directory, read its marker without following a symlink, and obtain the filesystem UUID and opaque directory handle for that same opened directory/filesystem. Compare fresh evidence and the location fingerprint with the recorded marker, and logical identities with the anchor, configuration and applicable journal. Associate observations with the currently mounted filesystem; detect inconsistent observations or replacement around acquisition and before operations using the certified adapter's handle-relative/revalidation mechanism. If the mechanism cannot establish that the observation and operation concern the intended directory, fail closed. A marker above a mount, a pathname, configured UUID, cached mount mapping or cached marker alone is insufficient.
+
+The initial profile must check symlinked ancestors, unexpected directory/mount substitutions and missing mounts exposing underlying directories. Do not persist volatile mount IDs or device numbers as permanent identity keys; they may only assist current observation consistency. Do not require the two roles to share a filesystem/device; when they do, their approved directory identities must still be distinct. Reobserve relevant bindings before publication, opening media, removal and persistence; check both roles before new deletion acceptance. Startup-only validation is insufficient. Reboot/container recreation must preserve acceptance of the same persistent directory identities at the same application-visible paths, despite changed ephemeral mount/device identifiers.
+
+Every later profile must also account for its platform's reparse points, cached metadata, reconnects and stale handles; cached marker access alone never proves a remote share is reachable. The Linux format does not certify NAS or other filesystems.
+
+The initial profile assumes operator-controlled directory ancestors, role roots and mount configuration: no untrusted process can rename/replace them, mount over them, edit markers or mutate managed media. Ordinary filesystem permissions and the deployment arrangement must enforce that assumption. While service is active, managed namespace writes are limited to coordinated provider operations; external restores, file managers and other independent writers are excluded, even if they run under a trusted account. Application code treats markers as read-only during normal service; all authorized relocation/restoration stops and fences every process capable of storage mutation and drains outstanding I/O. Identity checks alone do not defeat malicious concurrent host filesystem mutation. Privileged deliberate cloning/tampering is outside the threat boundary. A physical clone preserving filesystem UUID, directory handles and location evidence may be indistinguishable; reject conflicting duplicate identities if observed, but do not claim universal clone detection or content/snapshot integrity.
+
+### Native feasibility gate
+
+`linux-ext4-v1` remains a proposed initial-profile implementation until native tests demonstrate observation, persistence and replacement detection under the intended unprivileged application/deployment identity. Filesystem-UUID and file-handle acquisition must work in the actual mount/container arrangement; do not infer support from the OS name or a configured identifier. A native helper/adapter must not require unrestricted host/disk capabilities or privileged-container operation. Any new helper or dependency needs separate focused approval. If usable observation is unavailable, stop profile certification and report the limitation; there is no pathname-only, inode-only or `st_dev`-only fallback. Additional platform profiles remain staged under Option B.
+
+### Unavailable provenance
+
+Missing, mismatched, unsupported or uncertain binding evidence blocks media uploads/reads and new irreversible deletion acceptance with the existing sanitized `503 Service unavailable` response, preserving authentication/authorization ordering. Future destructive execution must stop issuing further destructive steps when identity cannot be confirmed and leave the journal pending; already submitted filesystem calls cannot be recalled. Missing targets on unverified storage never count as authoritative absence or completion. Authorized metadata-only operations may remain available. Responses and diagnostics must not disclose raw host paths, physical handles or private storage details; use bounded safe categories.
+
+No ordinary operation creates missing directories, repairs markers, adopts storage or rebinds the database. M12B's blanket HTTP startup refusal remains until separately authorized M12C implementation passes provenance and HTTP gating review; a populated singleton or marker alone cannot justify removing it.
 
 ### Provisioning
 
 Fresh initialization is an explicit operation on verified empty locations. It may create the reviewed layout and identity markers; ordinary uploads and startup may not implicitly initialize missing storage.
 
-Fresh initialization additionally requires an empty asset population and no deletion receipts. Generate the identity tuple explicitly, persist both exclusive role markers, verify both bindings, then insert the singleton in a short transaction. If its COMMIT is uncertain, confirm the exact committed tuple independently; until confirmed, storage remains unavailable. If marker creation is partial or conflicting, leave the database unadopted and require explicit recovery. Never overwrite markers or automatically retry initialization with new identities. The same fail-closed commit/recovery rules apply to adoption.
+Fresh initialization additionally requires an empty asset population and no deletion receipts. Generate the identity tuple explicitly, observe physical evidence for both approved empty role locations, persist both exclusive version 2 markers containing that evidence, freshly verify both bindings, then insert the singleton in a short transaction. If its COMMIT is uncertain, confirm the exact committed tuple independently; until confirmed, storage remains unavailable. If marker creation is partial or conflicting, leave the database unadopted and require explicit recovery. Never overwrite markers or automatically retry initialization with new identities. The same fail-closed commit/recovery rules apply to adoption.
 
 Existing-storage adoption requires:
 
@@ -718,16 +746,16 @@ Existing-storage adoption requires:
 - Confirmed database/storage pairing.
 - An operator-reviewed inventory/recovery manifest tying the complete existing asset population to the proposed originals and thumbnails locations. Resolve historical path syntax/roots and investigate missing or inconsistent files; filenames, absence, copied markers or matching configuration alone do not establish pairing. Do not follow stored paths outside the reviewed roots. If the evidence cannot establish one storage set, stop without inserting the anchor or accepting deletion.
 - Reviewed backup and recovery plan.
-- Exclusive marker creation and provider-appropriate persistence.
+- Verified physical observation, exclusive version 2 marker creation and provider-appropriate persistence.
 - No automatic media movement or database-path rewrite.
 
-Persist and verify both role markers before committing the singleton, retaining the pairing evidence in the approved operator record. Markers plus the database anchor enforce the adopted pairing afterward; they cannot automatically prove historical provenance at first adoption. Privileged deliberate cloning/tampering remains outside the application threat boundary. Existing matching records make verification repeatable; an existing different record is an error, never permission to replace it.
+Persist and verify both role markers before committing the singleton, retaining the pairing evidence in a protected operator record outside both media roots, included in the reviewed backup/recovery procedure and not writable by ordinary application operations. This record documents authorization/inventory and is not a second mandatory runtime authority. Markers, fresh physical observation and the database anchor enforce the adopted pairing afterward; they cannot automatically prove historical provenance at first adoption. Privileged deliberate cloning/tampering remains outside the application threat boundary. Existing matching records make verification repeatable; an existing different record is an error, never permission to replace it.
 
 Tests use synthetic roots only. Implementing or testing provisioning does not authorize adoption of the development storage.
 
 ### Approved relocation
 
-A location change is a controlled move of the same logical storage set, not a new assignment of existing assets. Require separate approval, backups and a recovery plan; stop all writers/executors and drain or fence outstanding storage I/O; verify a complete copy/manifest for each moved role; certify the destination profile and durably establish its matching role identity; then change the configured location and verify it against the unchanged database anchor. Either role may move independently, but both must verify before operations resume.
+A location change is a controlled move of the same logical storage set, not a new assignment of existing assets. Require separate approval, backups and a recovery plan; stop all writers/executors and drain or fence outstanding storage I/O; verify a complete copy/manifest for each moved role; certify the destination profile and explicitly re-establish its version 2 marker with freshly observed destination physical identity and the approved application-visible location fingerprint, preserving the logical role identity; then change the configured location and verify it against the unchanged database anchor. Either role may move independently, but both must verify before operations resume.
 
 Keep the old location offline from all executors and record the cutover. Copying an identity marker alone is insufficient. Failed/uncertain copying or cutover remains unavailable and requires operator recovery. Do not rewrite asset metadata, anchor identities or pending/completed journal targets as part of relocation. Assigning new logical identities or splitting an existing population requires a separately designed migration outside M12.
 
@@ -740,6 +768,8 @@ Before restoring a database or media snapshot:
 3. Restore a reviewed database/media pair, including its `storage_binding` row and both role identities; a pre-M12 backup requires migration followed by explicit historical adoption before storage operations.
 4. Reassess pending and completed receipts against the restored state.
 5. Verify database-anchor/configuration/role identity agreement, recovery-manifest provenance and compatibility before resuming. Missing or conflicting pairing evidence blocks resumption; do not derive a replacement anchor from the restored directory paths.
+
+Backups retain both markers and the protected operator pairing/recovery manifests. File-level restoration into different directories or filesystems may invalidate the recorded physical evidence; after verifying the complete matched recovery inventory, explicitly re-establish affected markers using fresh physical observation and the approved location fingerprint, without changing database logical identities or journal targets. Interrupted/uncertain restoration remains unavailable until both roles verify. Copying old markers or successfully reading their logical IDs is not restoration approval.
 
 Never silently assign an old binding identity to unrelated replacement storage. Do not clear receipts or resume pending operations automatically. A copied marker does not establish that a restored database/media pair is consistent.
 
@@ -881,15 +911,24 @@ Run the provider contract suite on the initial M12 local profile. Reuse it nativ
 - Open-stream deletion behavior.
 - Historical path syntax.
 - Full disk, permission, unlink and persistence failures.
-- Role-specific missing/replaced bindings.
+- Role-specific missing/replaced bindings, missing mounts exposing underlying directories and replacement filesystems at unchanged paths.
+- Copied markers in different directories, including directories on the same filesystem: physical mismatch rejects access/acceptance; no file removal or journal insertion.
+- Marker-v2 strict parsing: size boundary, invalid UTF-8/BOM, duplicate/unknown/missing fields, unsupported format/profile/handle type, malformed UUID/hex/fingerprint and version 1 evidence. No coercion, truncation, implicit upgrade or repair.
+- Deterministic location-fingerprint vectors covering lexical aliases, different absolute paths, Unicode encoding, invalid path input and symlinked ancestors.
+- Native filesystem-UUID and opaque-handle observation under the intended unprivileged deployment identity; denied/unavailable observation fails closed with no fallback.
+- Identity replacement/inconsistency between preflight and individual publication/open/removal/persistence operations; stop new unsafe work and never report unverified absence/completion.
+- Reboot and container recreation on the native certified profile: same persistent identities/locations remain valid despite changed ephemeral identifiers; changed physical storage fails.
+- Record the limits of undetectable physical clones and hostile privileged modification; synthetic identity equality is not proof of historical pairing or content integrity.
 - Changed configuration roots pointing to an unrelated but otherwise valid adopted set: reject upload/media access and deletion acceptance without file removal or journal insertion.
 - Swapped originals/thumbnail mounts, only one role replaced, incorrect database/media pairing, copied markers and unadopted identity: reject unless the explicit pairing procedure has established trusted provenance; markers alone must not bypass it.
 - Synthetic adoption with ambiguous/mixed historical roots, partial marker creation and uncertain singleton COMMIT: remain unavailable until exact pairing/commit confirmation; never auto-rebind.
-- Approved synthetic relocation preserving identities and receipts, interrupted cutover, matched restoration and pre-M12 restoration requiring adoption.
+- Approved synthetic relocation preserving logical identities and receipts while re-establishing physical evidence, failed/interrupted copy or cutover, matched restoration into changed directories, incomplete restoration and pre-M12 restoration requiring adoption. No automatic resumption or marker repair.
 - Acceptance copies the verified database tuple, not changed environment values; retries reject anchor/journal mismatch without changing either record.
 - No unrelated file changes.
 - Retired-ID collision cannot create a new committed asset, including delayed/concurrent upload finalization.
 - Safe rejection of unsupported capabilities.
+
+Initial Linux/ext4 certification requires a separately authorized disposable native ext4 environment (preferably an isolated Linux VM with disposable virtual disks), including independent role mounts and the intended unprivileged runtime/container arrangement. Never use `/boot` or development media as fixtures. Synthetic tmpfs/btrfs tests cannot certify ext4; process kills do not prove power-loss durability, and abrupt VM termination only establishes recovery under the recorded virtualization/cache assumptions. Do not create/mount filesystems or provision a VM without separate authorization. Missing native evidence blocks the profile's certification claim and must never be worked around by weakening identity checks.
 
 External/NAS certification additionally requires isolated disposable mount/export tests for disconnects, stale/cached metadata, replacement storage and ambiguous outcomes. Mocking an error code is not NAS certification. These additional native/mount profiles are staged support gates, not all mandatory M12 completion gates under Option B.
 
@@ -909,7 +948,7 @@ External/NAS certification additionally requires isolated disposable mount/expor
 
 ### Verification evidence
 
-From `server-nest/`, run applicable `npm run build`, `npm run typecheck`, `npm run lint`, `npm run test`, `npm run test:e2e`, `npm run test:integration`, `npm run test:migrations` and `npm run test:runtime-smoke`, plus focused formatting, Markdown-link and whitespace checks.
+From `server/`, run applicable `npm run build`, `npm run typecheck`, `npm run lint`, `npm run test`, `npm run test:e2e`, `npm run test:integration`, `npm run test:migrations` and `npm run test:runtime-smoke`, plus focused formatting, Markdown-link and whitespace checks.
 
 Use only the verified disposable PostgreSQL runner, never direct integration Vitest against an unverified target. Filesystem and crash tests use isolated synthetic directories and child processes. Report disposable-resource cleanup.
 

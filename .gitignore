@@ -4,7 +4,7 @@ __pycache__/
 *.pyo
 
 # Python virtual environment
-server/.venv/
+.venv/
 
 # Node.js dependencies
 node_modules/

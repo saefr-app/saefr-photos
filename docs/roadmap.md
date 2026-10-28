@@ -47,6 +47,10 @@ The approved Phase 11A architecture is in [ADR 0005](decisions/0005-asset-owners
 4. Redis + BullMQ worker for robust background processing, retries and failed-job visibility. Do not treat BullMQ as a separate container; it is a library running in backend/worker processes.
 5. CI and alpha validation: automated checks before PR integrations, production-style smoke test, backup/recovery verification, security review, documentation; first `main` merge and alpha version tag upon approval.
 
+### M12 — Manual asset lifecycle [FEATURE BRANCH IN PROGRESS]
+
+M12B is merged into `integration`; M12C storage compatibility, M12D pagination and reversible Trash, M12E.1 journal execution, and M12E.2 owner-authorized acceptance/status/retry are implemented on the draft feature branch. M12F local milestone-wide verification and its focused independent Astra recheck passed. The sole maintained NestJS backend moved to `server/` in committed restructuring `8571bad`; the retired FastAPI source is recoverable from Git history, and `web/` is reserved for future frontend work. Independent restructuring review passed, and [hosted ext4 run 40649284746](https://github.com/saefr-app/saefr-photos/actions/runs/40649284746) passed at implementation SHA `8571badf700849c8120ac6be51552c5b0fbe1ccb`. The final integrated M12 security review passed with two LOW findings; focused local corrections now await independent re-review and maintainer sign-off. M12 has not merged into `integration`. The [M12 specification](development/milestone-12-spec.md), [M12E.2 report](development/milestone-12e2-report.md), [M12F report](development/milestone-12f-report.md) and [restructuring report](development/milestone-12-restructuring-report.md) record implementation and evidence. Automatic expiry and maintenance belong to M13; real-data migration, storage adoption and deployment remain separately gated.
+
 ## Future app + ML tracks
 
 - Mobile client, gallery, upload/backup workflows: parallel development can start on stable API contracts, not only after server release.

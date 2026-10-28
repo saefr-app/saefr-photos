@@ -1,0 +1,47 @@
+name: M12C native ext4 certification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/m12-asset-lifecycle]
+    paths:
+      - ".github/workflows/m12c-native-ext4.yml"
+      - "server/native/**"
+      - "server/src/storage/**"
+      - "server/src/assets/**"
+      - "server/src/auth/auth-session.service.ts"
+      - "server/src/main.ts"
+      - "server/test/storage-native-http.integration-spec.ts"
+      - "server/test/startup-main.integration-spec.ts"
+      - "server/test/run-integration.mjs"
+      - "server/test/native-ext4-certification.*"
+      - "server/test/native-deletion-child.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  native-ext4:
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/feat/m12-asset-lifecycle'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Build observer and run disposable ext4 checks
+        working-directory: server
+        env:
+          EXPECTED_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          EXPECTED_RUNNER_OS: ${{ runner.os }}
+        run: |
+          npm ci
+          npm run build
+          bash test/native-ext4-certification.sh
