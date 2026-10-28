@@ -1,6 +1,6 @@
 # M12F — Final lifecycle verification report
 
-- **Status:** Astra's focused independent M12F recheck returned **PASS** after confirming both corrections. The M12F checkpoint is approved for commit and push; fresh hosted native ext4 certification remains pending. M12 remains on a draft feature branch and is not approved for merge, real-data use or deployment.
+- **Status:** Astra's focused independent M12F recheck returned **PASS** after confirming both corrections. The M12F implementation checkpoint `69d7ab0bacb884bfa70b9c486edd34431b1edf93` is committed and pushed; fresh hosted native ext4 certification passed for that exact implementation SHA. This report-only evidence update was not separately tested by the native workflow. M12 remains on a draft feature branch and is not approved for merge, real-data use or deployment.
 - **Branch and starting HEAD:** `feat/m12-asset-lifecycle` at `3c40f256fa7953714ef7cf4dd933485593ef3932`.
 - **Date:** 2026-10-28.
 - **Review vehicle:** [Draft PR #9](https://github.com/saefr-app/saefr-photos/pull/9).
@@ -84,7 +84,7 @@ Real-socket lifecycle tests send multipart fields/files, chunked multipart, JSON
 
 During the first focused corrective run, two new test fixtures failed: the durability-setting spy intercepted the wrong Kysely method, and a previously used thumbnail mock was not cleared. Both fixtures were corrected. The next focused run passed 36 cases. A later added same-connection scope test passed in the final 37-case focused run, then the complete 269-case suite passed. An initial typecheck caught a test-only union type access, which was fixed before final typecheck/lint passed. No production failure was hidden by these corrections.
 
-The earlier hosted ext4 run at `6316591` is historical evidence for the previous source. The new acceptance and HTTP guard source has **not** run in hosted native ext4 CI; a fresh run remains a separate certification gate after the corrective code is approved and pushed. `synchronous_commit=on` depends on PostgreSQL's server durability configuration and working storage; `fsync=off`, faulty hardware and power-loss behavior are not certified by these tests or this setting.
+The earlier hosted ext4 run at `6316591` is historical evidence for the previous source. Fresh hosted [native ext4 run 40643838258](https://github.com/saefr-app/saefr-photos/actions/runs/40643838258) passed against implementation SHA `69d7ab0bacb884bfa70b9c486edd34431b1edf93`. On GitHub-hosted Ubuntu 24.04/Linux, the job built the observer and passed native ext4 identity/marker, exact-byte publication/read/removal and three upload process-kill checks. Its six disposable PostgreSQL/real-socket HTTP cases passed: owner media authorization, wrong-pairing metadata-only behavior, committed deletion and absence, recovery after process kills, and owner deletion with explicit retry after partial removal. The job also checked the observer in a restricted non-root container, stable identity after unmount/remount, swapped-role rejection and missing-mount/copied-marker rejection. Logs confirm removal of the owned PostgreSQL 18 container, both ext4 mounts and image files. This is process-kill and normal directory-sync evidence; it does not certify hardware power loss or other filesystem profiles. The report-only commit containing this evidence did not trigger or receive native certification. `synchronous_commit=on` still depends on PostgreSQL server durability settings and working storage; `fsync=off`, faulty hardware and power-loss behavior are not certified by these tests or this setting.
 
 ## Final focused Astra recheck (2026-10-28)
 
@@ -100,7 +100,7 @@ The historical M8/M10/M11 migration files and inspectors were not changed in M12
 
 ## Outstanding gates and risks
 
-- Fresh hosted native ext4 certification for the corrected implementation, separately reviewed repository-layout checkpoint and renewed relevant certification remain before any M12 merge decision. PR #9 stays draft.
+- Separately reviewed repository-layout checkpoint and renewed relevant certification remain before any M12 merge decision. PR #9 stays draft.
 - No backup/restore rehearsal, real-data migration or storage adoption has been approved. Deployment TLS/proxy, operator fencing and first-alpha recovery procedures remain unverified.
 - The supported initial profile is the specifically observed Linux/ext4 arrangement. Windows, macOS, NAS, other mount profiles, reboot and hardware power-loss behavior are not certified. Native ENOSPC and full-disk conditions are not represented by an actual full-disk fixture.
 - A database/filesystem crash can leave pending deletion or upload residue. M13 must reuse this journal/executor for automatic retries, Trash expiry and report-first maintenance; none runs in M12.
@@ -115,5 +115,6 @@ In an authorized disposable verification checkout with Node.js 24, installed dep
 
 - [x] Initial independent Astra review identified two blockers; both received local corrections and regression tests.
 - [x] Focused independent Astra recheck returned PASS; maintainer approved the checkpoint commit and push.
+- [x] Fresh hosted native ext4 certification passed at implementation checkpoint `69d7ab0` (run 40643838258).
 - [ ] Separate repository-layout checkpoint and renewed relevant certification.
 - [ ] Separate approval before PR merge, real-data migration, storage adoption or deployment.
