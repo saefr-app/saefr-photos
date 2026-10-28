@@ -3,7 +3,9 @@ import {
   chmod,
   mkdtemp,
   mkdir,
+  realpath,
   rm,
+  statfs,
   symlink,
   writeFile,
 } from 'node:fs/promises';
@@ -13,6 +15,9 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { LinuxPhysicalStorageObserver } from './linux-physical-storage.observer.js';
+
+const EXT4_SUPER_MAGIC = 0xef53;
+const TMPFS_MAGIC = 0x01021994;
 
 describe.runIf(process.platform === 'linux')(
   'descriptor-only Linux physical observation',
@@ -51,13 +56,25 @@ describe.runIf(process.platform === 'linux')(
     });
 
     it('rejects a non-ext4 role directory without a pathname fallback', async () => {
-      const observer = new LinuxPhysicalStorageObserver(helper);
-      await expect(observer.observeIdentity('originals', root)).rejects.toThrow(
-        'Physical identity observation unavailable',
-      );
-      await expect(observer.observe('originals', root)).rejects.toThrow(
-        'Physical identity observation unavailable',
-      );
+      const temporaryType = (await statfs(root)).type;
+      const parent = temporaryType === EXT4_SUPER_MAGIC ? '/dev/shm' : root;
+      if (parent === '/dev/shm')
+        expect((await statfs(parent)).type).toBe(TMPFS_MAGIC);
+
+      const directory = await mkdtemp(join(parent, 'saefr-non-ext4-'));
+      try {
+        const role = await realpath(directory);
+        expect((await statfs(role)).type).not.toBe(EXT4_SUPER_MAGIC);
+        const observer = new LinuxPhysicalStorageObserver(helper);
+        await expect(
+          observer.observeIdentity('originals', role),
+        ).rejects.toThrow('Physical identity observation unavailable');
+        await expect(observer.observe('originals', role)).rejects.toThrow(
+          'Physical identity observation unavailable',
+        );
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
     });
 
     it('rejects symlinked directory ancestors before invoking the helper', async () => {
