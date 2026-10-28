@@ -58,6 +58,7 @@ const envKeys = [
   'POSTGRES_PASSWORD',
   'NODE_ENV',
   'APP_ORIGIN',
+  'PGOPTIONS',
 ];
 const previous = Object.fromEntries(
   envKeys.map((key) => [key, process.env[key]]),
@@ -188,6 +189,9 @@ describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
       );
     process.env.NODE_ENV = 'test';
     process.env.APP_ORIGIN = origin;
+    // Only this disposable test worker's new PostgreSQL connections inherit
+    // async commit. Acceptance/completion must strengthen their own COMMIT.
+    process.env.PGOPTIONS = '-c synchronous_commit=off';
     const { AppModule } = await import('../src/app.module.js');
     appDatabase = new DatabaseService(
       new ConfigService({
@@ -264,6 +268,157 @@ describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
       from public.asset_deletion where asset_id = ${id}::uuid`.execute(db);
     return result.rows[0].count;
   }
+
+  it('flushes acceptance and completion WAL despite an inherited async setting', async () => {
+    const inherited = await sql<{
+      value: string;
+    }>`select current_setting('synchronous_commit') as value`.execute(
+      appDatabase.db,
+    );
+    expect(inherited.rows[0].value).toBe('off');
+    const id = randomUUID();
+    await asset(id);
+    await sql`create table public.review_commit_observation
+      (phase text not null, setting text not null)`.execute(db);
+    await sql`create function public.review_observe_commit() returns trigger
+      language plpgsql as $$ begin
+        insert into public.review_commit_observation (phase, setting)
+        values (case when NEW.completed_at is not null then 'completion'
+          when TG_OP = 'INSERT' then 'acceptance' else 'claim' end,
+          current_setting('synchronous_commit'));
+        return NEW;
+      end $$`.execute(db);
+    await sql`create trigger review_observe_commit after insert or update
+      on public.asset_deletion for each row
+      execute function public.review_observe_commit()`.execute(db);
+    try {
+      const response = await deletion(id, { tag: lifecycleEtag(id, '1') });
+      expect(response.status).toBe(200);
+      expect((await response.json()) as { status: string }).toMatchObject({
+        status: 'completed',
+      });
+      const observed = await sql<{
+        phase: string;
+        setting: string;
+      }>`select phase, setting
+        from public.review_commit_observation`.execute(db);
+      expect(observed.rows).toContainEqual({
+        phase: 'acceptance',
+        setting: 'on',
+      });
+      expect(observed.rows).toContainEqual({
+        phase: 'completion',
+        setting: 'on',
+      });
+      expect(observed.rows).toContainEqual({ phase: 'claim', setting: 'off' });
+      expect(removed).toEqual(['originals', 'thumbnails']);
+      expect(await journalCount(id)).toBe(1);
+      const live = await sql<{
+        count: number;
+      }>`select count(*)::integer as count
+        from public.asset where id = ${id}::uuid`.execute(db);
+      expect(live.rows[0].count).toBe(0);
+      const after = await sql<{
+        value: string;
+      }>`select current_setting('synchronous_commit') as value`.execute(
+        appDatabase.db,
+      );
+      expect(after.rows[0].value).toBe('off');
+    } finally {
+      await sql`drop trigger review_observe_commit on public.asset_deletion`.execute(
+        db,
+      );
+      await sql`drop function public.review_observe_commit()`.execute(db);
+      await sql`drop table public.review_commit_observation`.execute(db);
+    }
+  });
+
+  it('limits the durable setting to its transaction through COMMIT and rollback', async () => {
+    await appDatabase.db.connection().execute(async (connection) => {
+      const setting = async () => {
+        const result = await sql<{
+          value: string;
+        }>`select current_setting('synchronous_commit') as value`.execute(
+          connection,
+        );
+        return result.rows[0].value;
+      };
+      expect(await setting()).toBe('off');
+      await connection.transaction().execute(async (transaction) => {
+        await sql`set local synchronous_commit to on`.execute(transaction);
+        const result = await sql<{
+          value: string;
+        }>`select current_setting('synchronous_commit') as value`.execute(
+          transaction,
+        );
+        expect(result.rows[0].value).toBe('on');
+      });
+      expect(await setting()).toBe('off');
+      await expect(
+        connection.transaction().execute(async (transaction) => {
+          await sql`set local synchronous_commit to on`.execute(transaction);
+          throw new Error('synthetic rollback');
+        }),
+      ).rejects.toThrow('synthetic rollback');
+      expect(await setting()).toBe('off');
+    });
+  });
+
+  it('refuses deletion if durable commit mode cannot be established', async () => {
+    const id = randomUUID();
+    await asset(id);
+    const realTransaction = appDatabase.db.transaction.bind(appDatabase.db);
+    let attemptedSql: string | undefined;
+    const transaction = vi
+      .spyOn(appDatabase.db, 'transaction')
+      .mockImplementation(
+        () =>
+          ({
+            setIsolationLevel: () => ({
+              execute: (
+                callback: (tx: Transaction<Database>) => Promise<unknown>,
+              ) =>
+                realTransaction()
+                  .setIsolationLevel('read committed')
+                  .execute(async (tx) => {
+                    const query = vi
+                      .spyOn(tx.getExecutor(), 'executeQuery')
+                      .mockRejectedValueOnce(
+                        new Error('synthetic durability setting failure'),
+                      );
+                    try {
+                      return await callback(tx);
+                    } finally {
+                      const first = query.mock.calls[0]?.[0];
+                      attemptedSql =
+                        first && 'sql' in first && typeof first.sql === 'string'
+                          ? first.sql
+                          : undefined;
+                      query.mockRestore();
+                    }
+                  }),
+            }),
+          }) as unknown as ReturnType<typeof appDatabase.db.transaction>,
+      );
+    try {
+      const response = await deletion(id, { tag: lifecycleEtag(id, '1') });
+      expect(response.status).toBe(503);
+      expect(await response.text()).not.toContain(
+        'synthetic durability setting failure',
+      );
+      expect(attemptedSql).toBe('set local synchronous_commit to on');
+      expect(await journalCount(id)).toBe(0);
+      const live = await sql<{
+        count: number;
+      }>`select count(*)::integer as count
+        from public.asset where id = ${id}::uuid`.execute(db);
+      expect(live.rows[0].count).toBe(1);
+      expect(provider.removeExact).not.toHaveBeenCalled();
+      expect(persistence).toEqual([]);
+    } finally {
+      transaction.mockRestore();
+    }
+  });
 
   afterAll(async () => {
     await app?.close();
@@ -672,6 +827,60 @@ describe('M12E.2 deletion HTTP boundary on disposable PostgreSQL', () => {
         where id = ${ownerSession}::uuid`.execute(db);
     }
   }, 10_000);
+
+  it('does not accept deletion when session revocation wins the user lock', async () => {
+    const id = randomUUID();
+    await asset(id);
+    const entered = barrier();
+    const release = barrier();
+    const blocker = appDatabase.db
+      .transaction()
+      .execute(async (transaction) => {
+        await transaction
+          .selectFrom('app_user')
+          .select('id')
+          .where('id', '=', owner)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
+        entered.release();
+        await release.promise;
+        await transaction
+          .deleteFrom('auth_session')
+          .where('user_id', '=', owner)
+          .execute();
+      });
+    await entered.promise;
+    const deleting = deletion(id, { tag: lifecycleEtag(id, '1') });
+    try {
+      await vi.waitFor(async () => {
+        const state = await sql<{
+          count: number;
+        }>`select count(*)::integer as count
+          from pg_stat_activity where datname = current_database()
+          and wait_event_type = 'Lock' and query like '%app_user%'`.execute(db);
+        expect(state.rows[0].count).toBeGreaterThanOrEqual(1);
+      });
+      release.release();
+      await blocker;
+      expect((await deleting).status).toBe(401);
+      expect(await journalCount(id)).toBe(0);
+      const rows = await sql<{
+        count: number;
+      }>`select count(*)::integer as count
+        from public.asset where id = ${id}::uuid`.execute(db);
+      expect(rows.rows[0].count).toBe(1);
+      expect(provider.removeExact).not.toHaveBeenCalled();
+      expect(persistence).toEqual([]);
+    } finally {
+      release.release();
+      await blocker;
+      await deleting.catch(() => undefined);
+      await sql`insert into public.auth_session (id, user_id, token_hash, csrf_token,
+        created_at, expires_at) values (${ownerSession}::uuid, ${owner}::uuid,
+        ${createHash('sha256').update(ownerToken).digest()}, ${csrf}, clock_timestamp(),
+        clock_timestamp() + interval '1 hour')`.execute(db);
+    }
+  }, 15_000);
 
   it('preserves an asset when the journal insert rolls back', async () => {
     const id = randomUUID();

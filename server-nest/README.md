@@ -45,6 +45,8 @@ M12E.1 added the internal deletion executor that consumes a committed `asset_del
 
 M12E.2 adds `DELETE /api/v1/assets/:assetId` for an owned Trash asset with a current lifecycle `If-Match`, `GET /api/v1/assets/deletions/:assetId` for receipt status and `POST /api/v1/assets/deletions/:assetId/retry` for an explicit owner retry. An acknowledged acceptance transaction retires the asset UUID and journals immutable deletion authority before any filesystem operation. A pending receipt needs a later explicit retry; no automatic recovery or Trash expiry runs in M12. These feature-branch routes require the adopted Linux/ext4 storage profile for new acceptance and are not approved for development-media use or deployment. See the [M12E.2 report](../docs/development/milestone-12e2-report.md).
 
+`GET /api/v1/assets` now returns a bounded active-asset page (`items`, `next_cursor`) instead of an array. Owner-only `GET /api/v1/assets/trash` and `GET /api/v1/assets/deletions` use the same pagination contract; Trash/Restore require strong lifecycle ETags. These changes remain on the draft M12 branch, and a cursor is not a mobile synchronization token.
+
 Startup does not run migrations. It checks exact managed M8/M10/M11 or
 M8/M10/M11/M12 schema/history before listening and fails safely if the database is unavailable or incompatible.
 The existing development database has not been approved for this upgrade;
@@ -66,6 +68,7 @@ npm run test:e2e
 npm run test:integration
 npm run test:migrations
 npm run test:runtime-smoke
+npm run test:native
 ```
 
 Unit and legacy asset HTTP E2E tests do not use the real PostgreSQL database. The

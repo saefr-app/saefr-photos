@@ -10,11 +10,13 @@ export function hasDeletionBody(request: FastifyRequest): boolean {
   );
 }
 
-export function isDeletionMutation(request: FastifyRequest): boolean {
+export function isEmptyBodyMutation(request: FastifyRequest): boolean {
   const route = request.routeOptions.url;
   return (
     (request.method === 'DELETE' && route === '/api/v1/assets/:assetId') ||
     (request.method === 'POST' &&
-      route === '/api/v1/assets/deletions/:assetId/retry')
+      (route === '/api/v1/assets/deletions/:assetId/retry' ||
+        route === '/api/v1/assets/:assetId/trash' ||
+        route === '/api/v1/assets/:assetId/restore'))
   );
 }

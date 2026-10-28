@@ -412,8 +412,7 @@ export class AssetsController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     const actor = requireAssetActor(request);
-    if (request.body !== undefined)
-      throw new BadRequestException('Invalid request');
+    this.emptyBody(request);
     const result = await this.assetsService.transition(
       actor,
       assetId,
@@ -434,8 +433,7 @@ export class AssetsController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     const actor = requireAssetActor(request);
-    if (request.body !== undefined)
-      throw new BadRequestException('Invalid request');
+    this.emptyBody(request);
     const result = await this.assetsService.transition(
       actor,
       assetId,

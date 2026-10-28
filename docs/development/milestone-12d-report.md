@@ -1,6 +1,6 @@
 # Milestone 12D — Pagination and reversible asset lifecycle
 
-- **Status:** Implemented on `feat/m12-asset-lifecycle`; milestone PR remains draft pending M12E and M12F.
+- **Status:** Implemented on `feat/m12-asset-lifecycle`. M12E.1 and M12E.2 subsequently passed their focused security gates; milestone-wide M12F verification and independent review remain before a merge decision.
 - **Base:** M12C checkpoint `ef67178526d34d239ab63ebada23c5a1977d89ca`.
 - **Date:** 2026-10-27.
 

@@ -1,6 +1,6 @@
 # M12E.1 — Internal permanent-deletion executor
 
-- **Status:** Astra's destructive-core review found a cancellation/deadline race. The narrow correction passed local and hosted ext4 verification; focused independent re-review remains a gate before M12E.2.
+- **Status:** Astra's destructive-core review found a cancellation/deadline race. The narrow correction passed local and hosted ext4 verification and subsequent focused independent re-review; M12E.2 was then implemented and passed its focused recheck. M12F remains a separate gate.
 - **Base:** M12D checkpoint `29858cddb974fe2243b3336e4acbcb7784ba0195`.
 - **Date:** 2026-10-27.
 

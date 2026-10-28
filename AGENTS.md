@@ -41,6 +41,7 @@ When these documents disagree with working code, report the discrepancy; don't s
 - Do not change git branches, merge, reset, rebase, force-push, commit, push, publish, or deploy without user approval for that operation. `git status`, `git diff`, and read-only git commands are fine.
 - No edits outside the approved milestone scope without explaining and obtaining approval; preserve user changes and check `git status` first. Do not silently discard uncommitted work.
 - M10 authentication and M11 owner-scoped asset authorization are merged into `integration` (M11 through PR #4 at `2141bb9`). Legacy NULL-owned assets remain quarantined. Keep the API bound to localhost. Do not deploy or publicly expose media routes, migrate development data, or map legacy ownership without separate approval and a reviewed recovery plan.
+- M12 manual lifecycle behavior is implemented on `feat/m12-asset-lifecycle` for review, not deployed. Permanent deletion accepts only an owned Trash asset under a committed journal and a verified storage binding. Never exercise these routes, storage-adoption commands or migration commands against development data without separate approval and a reviewed recovery plan.
 
 ## Standard milestone execution
 

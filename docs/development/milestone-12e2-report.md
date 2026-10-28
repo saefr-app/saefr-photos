@@ -1,6 +1,6 @@
 # M12E.2 — Permanent-deletion HTTP integration
 
-- **Status:** Astra's HTTP security review found two confirmed medium defects. The focused correction passed local verification and awaits independent Astra recheck. M12F, real-data migration and deployment remain separate gates.
+- **Status:** Astra's HTTP security review found two confirmed medium defects. The focused correction passed local verification and an independent Astra High recheck returned **PASS**; M12F, real-data migration and deployment remain separate gates.
 - **Base:** M12E.1 focused correction `0515ab7d7467e1c32df99032cd410369ef7345dd`.
 - **Date:** 2026-10-28.
 
@@ -69,4 +69,4 @@ After the final source/test changes, `npm run typecheck` and `npm run lint` pass
 
 The correction commit `6316591da05b9c9d3fa02b0a5b945b23fe2d02b2` triggered [hosted native ext4 run 40573116641](https://github.com/saefr-app/saefr-photos/actions/runs/40573116641), which concluded **success** at that exact SHA. Its six guarded native HTTP/PostgreSQL cases passed, covering owner media, wrong database/storage pairing, authorized committed deletion, binding refusal, partial-removal retry and repeated DELETE. The run log confirms removal of its owned disposable PostgreSQL container and temporary ext4 mounts/images. The new synthetic socket-boundary cases ran in the local 261-case suite, not in the six-case native-only selection. Neither run establishes hardware power-loss durability or other filesystem-profile certification.
 
-Outstanding limits are unchanged: already-issued filesystem calls may finish after cancellation, already-open media streams may finish after revocation, automatic recovery and Trash expiry belong to M13, and hardware power-loss, other filesystem profiles, backup/restore, real-data migration and deployment are not approved. Independent focused Astra recheck remains required before M12F.
+Outstanding limits are unchanged: already-issued filesystem calls may finish after cancellation, already-open media streams may finish after revocation, automatic recovery and Trash expiry belong to M13, and hardware power-loss, other filesystem profiles, backup/restore, real-data migration and deployment are not approved. The independent focused recheck at `3c40f25` passed 20/20 real-socket HTTP/PostgreSQL cases; a vulnerable-code control reproduced six failures. It made no repository edits and cleared the M12F implementation gate, not the deployment or real-data gates.

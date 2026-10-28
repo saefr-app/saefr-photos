@@ -148,6 +148,9 @@ export class AssetDeletionAcceptanceRepository {
         .execute(async (transaction) => {
           entered = true;
           try {
+            // The journal must survive a database crash before any file I/O.
+            // Keep the setting on this transaction's connection through COMMIT.
+            await sql`set local synchronous_commit to on`.execute(transaction);
             const user = await transaction
               .selectFrom('app_user')
               .select(['status', 'password_change_required'])

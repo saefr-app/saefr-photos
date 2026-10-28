@@ -12,7 +12,7 @@ import { exactOrigin, RequestAuthenticator } from './request-auth.js';
 import { safeErrorCode } from '../errors/safe-error-code.js';
 import {
   hasDeletionBody,
-  isDeletionMutation,
+  isEmptyBodyMutation,
 } from '../assets/deletion-empty-body.js';
 
 function assetNamespace(path: string): boolean {
@@ -95,7 +95,7 @@ export function registerAssetAccess(app: NestFastifyApplication): void {
     .getHttpAdapter()
     .getInstance()
     .addHook('onRequest', async (request, reply) => {
-      if (reply.sent || !isDeletionMutation(request)) return;
+      if (reply.sent || !isEmptyBodyMutation(request)) return;
       if (hasDeletionBody(request)) {
         reply.type('application/json').code(400).send({
           statusCode: 400,

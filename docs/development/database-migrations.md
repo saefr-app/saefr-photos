@@ -1,5 +1,11 @@
 # Database migrations
 
+## M12 lifecycle foundation (M12B merged; later M12 phases on a draft feature branch)
+
+The immutable `202610260001_asset_lifecycle` version adds `asset.trashed_at` and `asset.lifecycle_version`, the `asset_deletion` journal and an initially empty database-wide `storage_binding` singleton table. The history-aware runner dispatches to a separate exact M12 inspector and retains the historical M8/M10/M11 migrations and inspectors. Fresh installs, M11 upgrades and explicitly baselined legacy upgrades are tested on disposable PostgreSQL 18. Repeated and concurrent execution, schema drift rejection, historical-row preservation and an adopted singleton's preservation are covered. The migration does not assign legacy owners, inspect media or adopt storage.
+
+The M12 feature-branch API starts only with exact supported M11 or M12 schema/history. M12 media and new deletion acceptance require an independently verified adopted originals-and-thumbnails binding; a migrated but unadopted M12 database supports authenticated metadata only. Startup never applies migrations, provisions markers or resumes pending deletion. Older strict binaries cannot serve an M12 schema. An existing installation requires separately approved matching database/media backups, restore rehearsal, migration, storage-pairing evidence and controlled cutover. **Do not run migration or storage operator commands against the development database or media under this documentation.** See the [M12 specification](milestone-12-spec.md) and [M12C operator guide](milestone-12c-storage-operator-guide.md).
+
 ## M11 ownership foundation (Phase 11B; merged into `integration` through PR #4)
 
 The new version `202610220001_asset_ownership` adds nullable UUID `public.asset.owner_id` without a default. It adds a validated, non-deferrable foreign key to `public.app_user(id)` with `ON DELETE RESTRICT` and `ON UPDATE NO ACTION`, a B-tree index on `(owner_id, created_at DESC, id DESC)`, and an enforced `CHECK (owner_id IS NOT NULL) NOT VALID`. Existing rows remain NULL-owned; the check rejects new NULL inserts and updates to old NULL-owned rows until ownership is supplied. It is intentionally unvalidated even on fresh installations.

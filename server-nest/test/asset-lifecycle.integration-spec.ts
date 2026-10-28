@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { request as httpRequest } from 'node:http';
 import { Readable } from 'node:stream';
 
 import { Test } from '@nestjs/testing';
@@ -730,6 +731,221 @@ describe('M12 owner-scoped lifecycle with disposable PostgreSQL', () => {
         })
       ).status,
     ).toBe(200);
+  });
+
+  it('rejects multipart fields and files on Trash and Restore before changing state', async () => {
+    openThumbnail.mockClear();
+    for (const target of ['trash', 'restore'] as const) {
+      const id = randomUUID();
+      await addAsset(id);
+      if (target === 'restore')
+        await repository.transition(
+          actor,
+          id,
+          'trashed',
+          lifecycleEtag(id, '0'),
+        );
+      const version = target === 'trash' ? '0' : '1';
+      const body = new FormData();
+      if (target === 'trash') body.set('field', 'synthetic private field');
+      else body.set('file', new Blob(['synthetic private bytes']), 'test.jpg');
+      const response = await fetch(`${baseUrl}/api/v1/assets/${id}/${target}`, {
+        method: 'POST',
+        headers: { ...headers(true), 'If-Match': lifecycleEtag(id, version) },
+        body,
+      });
+      expect(response.status, target).toBe(400);
+      expect(await response.json(), target).toEqual({
+        statusCode: 400,
+        message: 'Invalid request',
+        error: 'Bad Request',
+      });
+      const rows = await sql<{
+        lifecycle_version: string;
+        trashed: boolean;
+      }>`select lifecycle_version::text as lifecycle_version,
+        trashed_at is not null as trashed from public.asset
+        where id = ${id}::uuid`.execute(database.db);
+      expect(rows.rows[0], target).toEqual({
+        lifecycle_version: version,
+        trashed: target === 'restore',
+      });
+      const journals = await sql<{
+        count: number;
+      }>`select count(*)::integer as count
+        from public.asset_deletion where asset_id = ${id}::uuid`.execute(
+        database.db,
+      );
+      expect(journals.rows[0].count).toBe(0);
+      expect(openThumbnail).not.toHaveBeenCalled();
+    }
+  });
+
+  it('rejects chunked multipart Trash and Restore before state changes', async () => {
+    const boundary = 'synthetic-lifecycle-boundary';
+    const body = `--${boundary}\r\nContent-Disposition: form-data; name="field"\r\n\r\nsynthetic\r\n--${boundary}--\r\n`;
+    for (const target of ['trash', 'restore'] as const) {
+      const id = randomUUID();
+      await addAsset(id);
+      if (target === 'restore')
+        await repository.transition(
+          actor,
+          id,
+          'trashed',
+          lifecycleEtag(id, '0'),
+        );
+      const version = target === 'trash' ? '0' : '1';
+      const response = await new Promise<{ status: number; body: unknown }>(
+        (resolve, reject) => {
+          const client = httpRequest(
+            `${baseUrl}/api/v1/assets/${id}/${target}`,
+            {
+              method: 'POST',
+              headers: {
+                ...headers(true),
+                'If-Match': lifecycleEtag(id, version),
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Transfer-Encoding': 'chunked',
+              },
+            },
+            (reply) => {
+              let received = '';
+              reply.setEncoding('utf8');
+              reply.on('data', (part: string) => {
+                received += part;
+              });
+              reply.on('end', () =>
+                resolve({
+                  status: reply.statusCode ?? 0,
+                  body: JSON.parse(received) as unknown,
+                }),
+              );
+            },
+          );
+          client.on('error', reject);
+          client.write(body.slice(0, 20));
+          client.end(body.slice(20));
+        },
+      );
+      expect(response, target).toEqual({
+        status: 400,
+        body: {
+          statusCode: 400,
+          message: 'Invalid request',
+          error: 'Bad Request',
+        },
+      });
+      const rows = await sql<{
+        version: string;
+      }>`select lifecycle_version::text as version
+        from public.asset where id = ${id}::uuid`.execute(database.db);
+      expect(rows.rows[0].version).toBe(version);
+    }
+  });
+
+  it('rejects other framed lifecycle bodies and retains empty-body compatibility', async () => {
+    for (const target of ['trash', 'restore'] as const) {
+      const id = randomUUID();
+      await addAsset(id);
+      if (target === 'restore')
+        await repository.transition(
+          actor,
+          id,
+          'trashed',
+          lifecycleEtag(id, '0'),
+        );
+      const version = target === 'trash' ? '0' : '1';
+      for (const [body, contentType] of [
+        ['{}', 'application/json'],
+        ['null', 'application/json'],
+        ['synthetic text', 'text/plain'],
+        ['synthetic bytes', 'application/octet-stream'],
+      ] as const) {
+        const response = await fetch(
+          `${baseUrl}/api/v1/assets/${id}/${target}`,
+          {
+            method: 'POST',
+            headers: {
+              ...headers(true),
+              'If-Match': lifecycleEtag(id, version),
+              'Content-Type': contentType,
+            },
+            body,
+          },
+        );
+        expect(response.status, `${target} ${contentType}`).toBe(400);
+        expect(await response.json()).toEqual({
+          statusCode: 400,
+          message: 'Invalid request',
+          error: 'Bad Request',
+        });
+      }
+      const unchanged = await sql<{
+        version: string;
+      }>`select lifecycle_version::text as version
+        from public.asset where id = ${id}::uuid`.execute(database.db);
+      expect(unchanged.rows[0].version).toBe(version);
+      const success = await fetch(`${baseUrl}/api/v1/assets/${id}/${target}`, {
+        method: 'POST',
+        headers: {
+          ...headers(true),
+          'If-Match': lifecycleEtag(id, version),
+          'Content-Length': '0',
+          'Content-Type': 'application/json',
+        },
+      });
+      expect(success.status).toBe(200);
+      expect(success.headers.get('etag')).toBe(
+        lifecycleEtag(id, String(Number(version) + 1)),
+      );
+    }
+  });
+
+  it('authenticates lifecycle requests before inspecting multipart framing', async () => {
+    const id = randomUUID();
+    await addAsset(id);
+    const body = new FormData();
+    body.set('field', 'synthetic private field');
+    const path = `${baseUrl}/api/v1/assets/${id}/trash`;
+    const unauthenticated = await fetch(path, { method: 'POST', body });
+    expect(unauthenticated.status).toBe(401);
+    const missingCsrf = await fetch(path, {
+      method: 'POST',
+      headers: {
+        ...headers(),
+        Origin: 'http://127.0.0.1:3000',
+        'If-Match': lifecycleEtag(id, '0'),
+      },
+      body,
+    });
+    expect(missingCsrf.status).toBe(403);
+    await database.db
+      .updateTable('app_user')
+      .set({ password_change_required: true })
+      .where('id', '=', owner)
+      .execute();
+    try {
+      const restricted = await fetch(path, {
+        method: 'POST',
+        headers: {
+          ...headers(true),
+          'If-Match': lifecycleEtag(id, '0'),
+        },
+        body,
+      });
+      expect(restricted.status).toBe(403);
+    } finally {
+      await database.db
+        .updateTable('app_user')
+        .set({ password_change_required: false })
+        .where('id', '=', owner)
+        .execute();
+    }
+    const rows = await sql<{
+      version: string;
+    }>`select lifecycle_version::text as version
+      from public.asset where id = ${id}::uuid`.execute(database.db);
+    expect(rows.rows[0].version).toBe('0');
   });
 
   it('denies restricted sessions on lifecycle routes', async () => {

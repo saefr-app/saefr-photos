@@ -148,6 +148,8 @@ export class AssetDeletionRepository {
       token,
       true,
       async (transaction) => {
+        // A completed receipt must not be acknowledged before its WAL flush.
+        await sql`set local synchronous_commit to on`.execute(transaction);
         const result = await sql<{
           asset_id: string;
         }>`update public.asset_deletion
