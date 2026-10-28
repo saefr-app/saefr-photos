@@ -1,0 +1,45 @@
+name: M13A worker CI
+
+on:
+  pull_request:
+    branches: [integration]
+
+permissions:
+  contents: read
+
+jobs:
+  worker-verification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm run test
+      - name: HTTP E2E tests
+        run: npm run test:e2e
+      - name: Disposable Redis integration tests
+        timeout-minutes: 15
+        run: npm run test:redis
+      - name: Disposable PostgreSQL integration tests
+        timeout-minutes: 20
+        run: npm run test:integration
+      - name: Runtime smoke checks
+        run: npm run test:runtime-smoke
