@@ -440,6 +440,14 @@ describe('M11 owner-scoped core on disposable PostgreSQL 18', () => {
       const faultingRepository = new AssetsRepository({
         db: faultingDb,
       } as DatabaseService);
+      // Keep the prepublication read healthy so this fixture still injects
+      // failure at the transaction acquisition/BEGIN boundary after publish.
+      vi.spyOn(
+        faultingRepository,
+        'assertIdAvailableForPublication',
+      ).mockImplementation((id) =>
+        repository.assertIdAvailableForPublication(id),
+      );
       const storage = new LocalStorageService(
         new ConfigService({ STORAGE_ROOT: root }),
       );

@@ -140,6 +140,7 @@ describe('provider-backed M11 image surface on synthetic storage', () => {
       csrfToken: Buffer.alloc(32),
     };
     const repository = {
+      assertIdAvailableForPublication: async () => undefined,
       createForActor: async () => ({
         status: 'uncertain',
         error: new Error('private PostgreSQL detail'),

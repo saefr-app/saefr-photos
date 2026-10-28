@@ -255,6 +255,32 @@ export class AssetsRepository {
       });
   }
 
+  /** Reject known collisions before streaming; createForActor remains authoritative. */
+  async assertIdAvailableForPublication(assetId: string): Promise<void> {
+    const result = await sql<{
+      occupied: boolean;
+      migrated: boolean;
+      journal_present: boolean;
+    }>`select
+      exists(select 1 from public.asset where id = ${assetId}::uuid) as occupied,
+      exists(select 1 from public.kysely_migration
+        where name = ${ASSET_LIFECYCLE_MIGRATION}) as migrated,
+      to_regclass('public.asset_deletion') is not null as journal_present`.execute(
+      this.database.db,
+    );
+    const state = result.rows[0];
+    if (!state || state.occupied || state.migrated !== state.journal_present)
+      throw new Error('Asset identifier unavailable');
+    if (state.migrated) {
+      const retired = await this.database.db
+        .selectFrom('asset_deletion')
+        .select('asset_id')
+        .where('asset_id', '=', assetId)
+        .executeTakeFirst();
+      if (retired) throw new Error('Asset identifier unavailable');
+    }
+  }
+
   async createForActor(
     actor: AuthenticatedActor,
     asset: NewAsset,

@@ -39,6 +39,7 @@ describe('Image upload with isolated real storage (e2e)', () => {
   let root: string;
   let app: NestFastifyApplication;
   let createForActor: ReturnType<typeof vi.fn>;
+  let assertIdAvailableForPublication: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'saefr-upload-http-test-'));
@@ -46,6 +47,7 @@ describe('Image upload with isolated real storage (e2e)', () => {
       status: 'committed',
       asset,
     }));
+    assertIdAvailableForPublication = vi.fn().mockResolvedValue(undefined);
 
     const moduleFixture = await Test.createTestingModule({
       imports: [LegacyAssetsTestModule],
@@ -55,7 +57,10 @@ describe('Image upload with isolated real storage (e2e)', () => {
       .overrideProvider(RequestAuthenticator)
       .useValue(assetAuthenticator)
       .overrideProvider(AssetsRepository)
-      .useValue({ createForActor })
+      .useValue({
+        assertIdAvailableForPublication,
+        createForActor,
+      })
       .overrideProvider(LocalStorageService)
       .useValue(
         new LocalStorageService(new ConfigService({ STORAGE_ROOT: root })),
@@ -118,6 +123,42 @@ describe('Image upload with isolated real storage (e2e)', () => {
     ).toBe('jpeg');
     expect(createForActor).toHaveBeenCalledOnce();
   });
+
+  it('returns a sanitized response and drains the socket after a prepublication lookup failure', async () => {
+    const sentinel = join(root, 'unrelated.txt');
+    await writeFile(sentinel, 'keep me');
+    assertIdAvailableForPublication.mockRejectedValueOnce(
+      new Error('private database credential and path'),
+    );
+    const original = await sharp({
+      create: {
+        width: 32,
+        height: 32,
+        channels: 3,
+        background: '#224466',
+      },
+    })
+      .jpeg()
+      .toBuffer();
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    const response = await fetch(`${await app.getUrl()}/api/v1/assets/upload`, {
+      method: 'POST',
+      headers: {
+        ...assetHeaders(true),
+        'content-type':
+          'multipart/form-data; boundary=saefr-storage-test-boundary',
+      },
+      body: new Uint8Array(multipartBody(original)),
+      signal: AbortSignal.timeout(3000),
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get('content-type')).toMatch(/^application\/json/);
+    expect(await response.text()).not.toContain('private');
+    expect(createForActor).not.toHaveBeenCalled();
+    expect(await readdir(root)).toEqual(['unrelated.txt']);
+    expect(await readFile(sentinel, 'utf8')).toBe('keep me');
+  }, 6000);
 
   it('rejects invalid image bytes without publishing files or metadata', async () => {
     const response = await upload(Buffer.from('not a JPEG'));

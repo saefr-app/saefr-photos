@@ -491,6 +491,16 @@ describe('M11 production owner-scoped HTTP boundary over real sockets', () => {
     },
   );
 
+  it('uses the historical M11 asset table for prepublication checks without a journal', async () => {
+    const repository = app.get(AssetsRepository);
+    await expect(
+      repository.assertIdAvailableForPublication(randomUUID()),
+    ).resolves.toBeUndefined();
+    await expect(
+      repository.assertIdAvailableForPublication(assets.a),
+    ).rejects.toThrow('Asset identifier unavailable');
+  });
+
   it('owns uploaded bytes from the actor, ignores forged headers/query and rejects owner fields', async () => {
     const res = await request(
       `/api/v1/assets/upload?owner_id=${clients.b.id}`,

@@ -38,7 +38,12 @@ describe('AssetsService uploads', () => {
         asset,
       }));
 
+    const assertIdAvailableForPublication = vi
+      .fn()
+      .mockResolvedValue(undefined);
+
     const repository = {
+      assertIdAvailableForPublication,
       createForActor,
     } as unknown as AssetsRepository;
 
@@ -52,11 +57,17 @@ describe('AssetsService uploads', () => {
       saveImage,
       deleteImage,
       createForActor,
+      assertIdAvailableForPublication,
     };
   }
 
   it('stores an image and creates database metadata', async () => {
-    const { service, saveImage, createForActor } = setup();
+    const {
+      service,
+      saveImage,
+      createForActor,
+      assertIdAvailableForPublication,
+    } = setup();
 
     const result = await service.upload(actor, {
       filename: 'holiday.jpg',
@@ -70,11 +81,67 @@ describe('AssetsService uploads', () => {
     expect(result.id).toBeTruthy();
 
     expect(saveImage).toHaveBeenCalledOnce();
+    expect(assertIdAvailableForPublication).toHaveBeenCalledWith(result.id);
+    expect(
+      assertIdAvailableForPublication.mock.invocationCallOrder[0],
+    ).toBeLessThan(saveImage.mock.invocationCallOrder[0]);
     expect(createForActor).toHaveBeenCalledOnce();
     expect(createForActor).toHaveBeenCalledWith(
       actor,
       expect.not.objectContaining({ owner_id: expect.anything() }),
     );
+  });
+
+  it('rejects a prepublication collision without publishing or cleaning another attempt', async () => {
+    const {
+      service,
+      assertIdAvailableForPublication,
+      saveImage,
+      createForActor,
+      deleteImage,
+    } = setup();
+    assertIdAvailableForPublication.mockRejectedValueOnce(
+      new Error('Asset identifier unavailable'),
+    );
+
+    await expect(
+      service.upload(actor, {
+        filename: 'holiday.jpg',
+        mimeType: 'image/jpeg',
+        stream: Readable.from([Buffer.from('image')]),
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(saveImage).not.toHaveBeenCalled();
+    expect(createForActor).not.toHaveBeenCalled();
+    expect(deleteImage).not.toHaveBeenCalled();
+  });
+
+  it('fails safely when the database prepublication lookup fails', async () => {
+    const {
+      service,
+      assertIdAvailableForPublication,
+      saveImage,
+      createForActor,
+      deleteImage,
+    } = setup();
+    assertIdAvailableForPublication.mockRejectedValueOnce(
+      new Error('private connection detail'),
+    );
+    const failure: unknown = await service
+      .upload(actor, {
+        filename: 'holiday.jpg',
+        mimeType: 'image/jpeg',
+        stream: Readable.from([Buffer.from('image')]),
+      })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ServiceUnavailableException);
+    expect(
+      JSON.stringify((failure as ServiceUnavailableException).getResponse()),
+    ).not.toContain('private');
+    expect(saveImage).not.toHaveBeenCalled();
+    expect(createForActor).not.toHaveBeenCalled();
+    expect(deleteImage).not.toHaveBeenCalled();
   });
 
   it('cleans up files when database insertion fails', async () => {

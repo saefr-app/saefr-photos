@@ -161,6 +161,7 @@ describe('bound media HTTP behavior with synthetic physical evidence', () => {
       .overrideProvider(AssetsRepository)
       .useValue({
         findFileById: vi.fn().mockResolvedValue(asset),
+        assertIdAvailableForPublication: vi.fn().mockResolvedValue(undefined),
         createForActor: created,
       })
       .overrideProvider(LocalStorageService)

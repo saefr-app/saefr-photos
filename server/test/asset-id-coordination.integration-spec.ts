@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ConfigService } from '@nestjs/config';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -84,8 +85,74 @@ describe('M12 asset-ID transaction coordination on disposable PostgreSQL', () =>
     }
   });
 
+  it('rejects an existing asset before publication, regardless of owner', async () => {
+    const id = randomUUID();
+    const repository = new AssetsRepository(db);
+    await sql`insert into public.asset
+      (id, owner_id, filename, mime_type, size, storage_path, created_at)
+      values (${id}::uuid, ${owner}::uuid, 'existing.jpg', 'image/jpeg', 1,
+        'synthetic-existing-path', clock_timestamp())`.execute(db.db);
+    try {
+      await expect(
+        repository.assertIdAvailableForPublication(id),
+      ).rejects.toThrow('Asset identifier unavailable');
+    } finally {
+      await sql`delete from public.asset where id = ${id}::uuid`.execute(db.db);
+    }
+  });
+
+  it('rejects a retained journal receipt before publication', async () => {
+    const id = randomUUID();
+    const repository = new AssetsRepository(db);
+    await sql`insert into public.asset_deletion (
+      asset_id, owner_id, accepted_lifecycle_version, storage_id,
+      originals_binding_id, thumbnails_binding_id, storage_layout_version,
+      original_extension, requested_at)
+      values (${id}::uuid, ${owner}::uuid, 0, ${storage}::uuid,
+        ${originals}::uuid, ${thumbnails}::uuid, 1, '.jpg',
+        clock_timestamp())`.execute(db.db);
+    try {
+      await expect(
+        repository.assertIdAvailableForPublication(id),
+      ).rejects.toThrow('Asset identifier unavailable');
+    } finally {
+      await sql`delete from public.asset_deletion where asset_id = ${id}::uuid`.execute(
+        db.db,
+      );
+    }
+  });
+
+  it('allows an unused M12 identifier and fails closed on lookup failure', async () => {
+    const repository = new AssetsRepository(db);
+    await expect(
+      repository.assertIdAvailableForPublication(randomUUID()),
+    ).resolves.toBeUndefined();
+    const config = testConfig();
+    const unavailable = new DatabaseService(
+      new ConfigService({
+        POSTGRES_HOST: '127.0.0.1',
+        POSTGRES_PORT: config.getOrThrow<number>('POSTGRES_PORT'),
+        POSTGRES_DB: `saefr_missing_${randomUUID().replaceAll('-', '')}`,
+        POSTGRES_USER: config.getOrThrow<string>('POSTGRES_USER'),
+        POSTGRES_PASSWORD: config.getOrThrow<string>('POSTGRES_PASSWORD'),
+      }),
+    );
+    try {
+      await expect(
+        new AssetsRepository(unavailable).assertIdAvailableForPublication(
+          randomUUID(),
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await unavailable.onModuleDestroy();
+    }
+  });
+
   it('upload finalization waits for a competing retirement and refuses that UUID', async () => {
     const id = randomUUID();
+    await expect(
+      new AssetsRepository(db).assertIdAvailableForPublication(id),
+    ).resolves.toBeUndefined();
     const other = new DatabaseService(testConfig());
     let pending: ReturnType<AssetsRepository['createForActor']> | undefined;
     try {

@@ -89,6 +89,7 @@ describe('Image upload API (e2e)', () => {
       .useValue(assetAuthenticator)
       .overrideProvider(AssetsRepository)
       .useValue({
+        assertIdAvailableForPublication: vi.fn().mockResolvedValue(undefined),
         createForActor,
       })
       .overrideProvider(LocalStorageService)

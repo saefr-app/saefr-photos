@@ -113,6 +113,14 @@ export class AssetsService {
 
     const assetId = randomUUID();
 
+    try {
+      await this.assetsRepository.assertIdAvailableForPublication(assetId);
+    } catch (error: unknown) {
+      throw new ServiceUnavailableException('Service unavailable', {
+        cause: error,
+      });
+    }
+
     const stored = await this.storage.saveImage(
       assetId,
       upload.mimeType,
