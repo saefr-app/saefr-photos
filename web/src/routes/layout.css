@@ -1,0 +1,79 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+:root {
+	--color-canvas: #090b0b;
+	--color-viewer: #0d0f12;
+	--color-elevated: #1a1f1e;
+	--color-input: #202524;
+	--color-text-primary: #f5f6f6;
+	--color-text-secondary: #9ba4a1;
+	--color-text-disabled: #707a76;
+	--color-brand: #0f766e;
+	--color-danger: #f18b88;
+	--color-focus: #f5f6f6;
+	font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+	color: var(--color-text-primary);
+	background: var(--color-canvas);
+}
+
+@theme inline {
+	--color-background: var(--color-canvas);
+	--color-foreground: var(--color-text-primary);
+	--color-card: var(--color-elevated);
+	--color-card-foreground: var(--color-text-primary);
+	--color-popover: var(--color-elevated);
+	--color-popover-foreground: var(--color-text-primary);
+	--color-primary: var(--color-text-primary);
+	--color-primary-foreground: var(--color-canvas);
+	--color-muted: #151a19;
+	--color-muted-foreground: var(--color-text-secondary);
+	--color-accent: #23302e;
+	--color-accent-foreground: var(--color-text-primary);
+	--color-destructive: var(--color-danger);
+	--color-border: transparent;
+	--color-input: var(--color-input);
+	--color-ring: var(--color-focus);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	min-width: 320px;
+	min-height: 100%;
+	background: var(--color-canvas);
+}
+
+body {
+	font-size: 14px;
+}
+
+button,
+a,
+input {
+	font: inherit;
+}
+
+button,
+a {
+	-webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+	outline: 2px solid var(--color-focus);
+	outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		scroll-behavior: auto !important;
+		transition-duration: 0.01ms !important;
+		animation-duration: 0.01ms !important;
+	}
+}
