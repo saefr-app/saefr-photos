@@ -12,6 +12,11 @@
 	--color-brand: #0f766e;
 	--color-danger: #f18b88;
 	--color-focus: #f5f6f6;
+	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+	--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+	--duration-fast: 140ms;
+	--duration-ui: 180ms;
+	--duration-panel: 240ms;
 	font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 	color: var(--color-text-primary);
 	background: var(--color-canvas);
@@ -50,6 +55,7 @@ body {
 
 body {
 	font-size: 14px;
+	overflow-x: hidden;
 }
 
 button,
@@ -66,6 +72,30 @@ a {
 :focus-visible {
 	outline: 2px solid var(--color-focus);
 	outline-offset: 3px;
+}
+
+::selection {
+	background: #5eead433;
+	color: var(--color-text-primary);
+}
+
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+::-webkit-scrollbar-track {
+	background: var(--color-canvas);
+}
+
+::-webkit-scrollbar-thumb {
+	border: 3px solid var(--color-canvas);
+	border-radius: 999px;
+	background: #38423f;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: #53615c;
 }
 
 @media (prefers-reduced-motion: reduce) {

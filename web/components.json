@@ -13,5 +13,8 @@
 		"ui": "$lib/components/ui",
 		"lib": "$lib",
 		"hooks": "$lib/hooks"
+	},
+	"registries": {
+		"@sveltebits": "https://sveltebits.xyz/r/{name}.json"
 	}
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { RefreshCw, Upload } from '@lucide/svelte';
 	import GalleryShell from '../../lib/components/GalleryShell.svelte';
+	import StatusMark from '../../lib/components/svelte-bits/StatusMark.svelte';
 	import { photos } from '../../lib/fixtures';
 
 	let showError = $state(false);
@@ -27,7 +28,10 @@
 			</div>
 		</section>
 	{/each}
-	<div class="upload-summary" aria-live="polite">Ready to upload · Choose files above</div>
+	<div class="upload-summary" aria-live="polite">
+		<StatusMark status="pending" label="Ready to upload" size={16} />
+		<span>Choose files above</span>
+	</div>
 </GalleryShell>
 
 <style>
@@ -41,7 +45,7 @@
 	.tile { display:block; aspect-ratio:1; overflow:hidden; background:var(--color-input); border-radius:3px; }
 	.tile img { display:block; width:100%; height:100%; object-fit:cover; transition:filter .14s ease, transform .2s ease; }
 	.tile:hover img, .tile:focus-visible img { filter:brightness(1.12); transform:scale(1.015); }
-	.upload-summary { position:fixed; right:24px; bottom:24px; padding:12px 14px; border-radius:12px; background:var(--color-elevated); color:var(--color-text-secondary); font-size:12px; }
+	.upload-summary { position:fixed; right:24px; bottom:24px; display:flex; align-items:center; gap:8px; padding:12px 14px; border-radius:12px; background:var(--color-elevated); color:var(--color-text-secondary); font-size:12px; }
 	@media (max-width:899px) { .grid { grid-template-columns:repeat(4, minmax(0, 1fr)); } }
 	@media (max-width:599px) { .grid { grid-template-columns:repeat(3, minmax(0, 1fr)); } .upload-summary { right:10px; bottom:78px; } .notice { align-items:flex-start; } }
 	@media (max-width:360px) { .grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
