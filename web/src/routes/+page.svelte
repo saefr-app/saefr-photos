@@ -256,13 +256,6 @@
 			</main>
 		</div>
 
-		<nav class="mobile-nav lg:hidden" aria-label="Mobile navigation">
-			{#each navItems as item}
-				{@const Icon = item.icon}
-				<button class:active={active === item.label} onclick={() => selectNav(item.label)}><Icon size={20} /><span>{item.label}</span></button>
-			{/each}
-		</nav>
-
 		{#if uploadOpen}
 			<div class="upload-panel" class:expanded={uploadExpanded}>
 				<div class="flex items-center justify-between gap-5">
@@ -277,7 +270,7 @@
 {/if}
 
 <style>
-	.action, .icon-action, .nav-item, .mobile-nav button, .menu-item, .viewer-arrow, .settings-nav button { transition: opacity 160ms ease, color 160ms ease, background-color 160ms ease, transform 160ms ease; }
+	.action, .icon-action, .nav-item, .menu-item, .viewer-arrow, .settings-nav button { transition: opacity 160ms cubic-bezier(.22,1,.36,1), color 160ms cubic-bezier(.22,1,.36,1), background-color 160ms cubic-bezier(.22,1,.36,1), transform 160ms cubic-bezier(.22,1,.36,1); }
 	.action, .icon-action { border: 0; background: transparent; color: #9ba4a1; cursor: pointer; }
 	.action { min-height: 44px; padding: 8px; }
 	.icon-action { display: grid; min-width: 44px; min-height: 44px; place-items: center; border-radius: 10px; }
@@ -302,8 +295,5 @@
 	.settings-nav button:hover, .settings-nav button.active-setting { color: #f5f6f6; }
 	.upload-panel { position: fixed; right: 24px; bottom: 24px; z-index: 20; width: 330px; border-radius: 15px; background: #1a1f1e; padding: 14px; box-shadow: 0 18px 45px #0008; }
 	.toast { position: fixed; right: 24px; bottom: 28px; z-index: 30; max-width: 360px; border-radius: 12px; background: #1a1f1e; padding: 13px 16px; color: #f5f6f6; box-shadow: 0 12px 30px #0007; }
-	.mobile-nav { position: fixed; right: 0; bottom: 0; left: 0; z-index: 15; display: grid; grid-template-columns: repeat(3, 1fr); background: #090b0bf2; padding: 7px 8px calc(7px + env(safe-area-inset-bottom)); backdrop-filter: blur(14px); }
-	.mobile-nav button { display: flex; min-height: 48px; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; background: transparent; color: #707a76; font-size: 11px; cursor: pointer; }
-	.mobile-nav button.active { color: #f5f6f6; }
-	@media (max-width: 639px) { .settings-content { display: block; padding-top: 4px; } .settings-nav { margin-bottom: 38px; } .settings-nav button { padding: 12px 0; } .upload-panel { right: 12px; bottom: calc(78px + env(safe-area-inset-bottom)); left: 12px; width: auto; } .toast { right: 12px; bottom: calc(80px + env(safe-area-inset-bottom)); left: 12px; text-align: center; } }
+	@media (max-width: 639px) { .settings-content { display: block; padding-top: 4px; } .settings-nav { margin-bottom: 38px; } .settings-nav button { padding: 12px 0; } .upload-panel { right: 12px; bottom: 12px; left: 12px; width: auto; } .toast { right: 12px; bottom: 16px; left: 12px; text-align: center; } }
 </style>
