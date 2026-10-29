@@ -11,7 +11,6 @@
 		Image,
 		Info,
 		LogOut,
-		Menu,
 		MoreHorizontal,
 		PanelLeftClose,
 		PanelLeftOpen,
@@ -59,7 +58,6 @@
 	let uploadExpanded = $state(false);
 	let menuOpen = $state(false);
 	let toast = $state('');
-	let mobileMenuOpen = $state(false);
 
 	const navItems = [
 		{ label: 'Photos', icon: Image },
@@ -70,7 +68,6 @@
 	function selectNav(label: string) {
 		active = label;
 		selectedPhoto = null;
-		mobileMenuOpen = false;
 	}
 
 	function showToast(message: string) {
@@ -165,21 +162,20 @@
 	<div class="min-h-screen bg-[var(--color-canvas)]">
 		<header class="flex h-16 items-center justify-between px-5 lg:px-8">
 			<div class="flex items-center gap-3">
-				<button class="icon-action lg:hidden" aria-label="Open navigation" onclick={() => (mobileMenuOpen = !mobileMenuOpen)}><Menu size={20} /></button>
 				<div class="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.02em]">
 					<span class="grid size-7 place-items-center rounded-lg bg-white text-[#090b0b]"><Image size={16} strokeWidth={2.5} /></span>
 					Saefr
 				</div>
 			</div>
 			<div class="flex items-center gap-2">
-				<button class="action hidden gap-2 text-sm sm:flex" onclick={() => showToast('Help center coming soon')}><CircleHelp size={17} /> Help</button>
+				<button class="action help-action hidden gap-2 text-sm sm:inline-flex" onclick={() => showToast('Help center coming soon')}><CircleHelp size={17} /> <span>Help</span></button>
 				<button class="icon-action" aria-label="Account" onclick={() => { active = 'Settings'; }}><UserRound size={19} /></button>
 			</div>
 		</header>
 
 		<div class="flex">
-			<aside class:collapsed class="sidebar hidden shrink-0 px-3 py-5 lg:block">
-				<div class="mb-8 flex justify-end">
+			<aside class:collapsed class="sidebar shrink-0 px-3 py-5">
+				<div class="sidebar-controls mb-8">
 					<button class="icon-action" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onclick={() => (collapsed = !collapsed)}>
 						{#if collapsed}<PanelLeftOpen size={18} />{:else}<PanelLeftClose size={18} />{/if}
 					</button>
@@ -200,7 +196,7 @@
 				</div>
 			</aside>
 
-			<main class="min-w-0 flex-1 px-4 pb-24 sm:px-6 lg:px-8">
+			<main class="min-w-0 flex-1 px-4 pb-12 sm:px-6 lg:px-8">
 				<div class="mx-auto max-w-[1500px]">
 					<div class="flex items-end justify-between pb-7 pt-7 sm:pt-4">
 						<div>
@@ -270,16 +266,19 @@
 {/if}
 
 <style>
-	.action, .icon-action, .nav-item, .menu-item, .viewer-arrow, .settings-nav button { transition: opacity 160ms cubic-bezier(.22,1,.36,1), color 160ms cubic-bezier(.22,1,.36,1), background-color 160ms cubic-bezier(.22,1,.36,1), transform 160ms cubic-bezier(.22,1,.36,1); }
+	.action, .icon-action, .nav-item, .menu-item, .viewer-arrow, .settings-nav button { transition: opacity 160ms cubic-bezier(.23,1,.32,1), color 160ms cubic-bezier(.23,1,.32,1), background-color 160ms cubic-bezier(.23,1,.32,1), transform 160ms cubic-bezier(.23,1,.32,1); }
 	.action, .icon-action { border: 0; background: transparent; color: #9ba4a1; cursor: pointer; }
 	.action { min-height: 44px; padding: 8px; }
 	.icon-action { display: grid; min-width: 44px; min-height: 44px; place-items: center; border-radius: 10px; }
 	.icon-action:hover, .action:hover { color: #f5f6f6; }
 	.sidebar { display: flex; min-height: calc(100vh - 64px); width: 220px; flex-direction: column; }
 	.sidebar.collapsed { width: 68px; }
+	.sidebar-controls { display: flex; justify-content: flex-start; width: 100%; }
 	.nav-item { display: flex; width: 100%; min-height: 44px; align-items: center; gap: 13px; border: 0; border-radius: 10px; background: transparent; padding: 8px 12px; color: #707a76; cursor: pointer; text-align: left; }
 	.nav-item:hover, .nav-item.active { color: #f5f6f6; }
 	.sidebar.collapsed .nav-item { justify-content: center; padding-inline: 8px; }
+	.sidebar.collapsed .sidebar-controls { justify-content: center; }
+	.help-action { align-items: center; }
 	.photo-tile { aspect-ratio: 1; overflow: hidden; border: 0; border-radius: 3px; background: #151a19; padding: 0; cursor: pointer; }
 	.photo-tile img { width: 100%; height: 100%; object-fit: cover; transition: filter 180ms ease, transform 300ms ease; }
 	.photo-tile:hover img { filter: brightness(1.12); transform: scale(1.025); }
@@ -295,5 +294,5 @@
 	.settings-nav button:hover, .settings-nav button.active-setting { color: #f5f6f6; }
 	.upload-panel { position: fixed; right: 24px; bottom: 24px; z-index: 20; width: 330px; border-radius: 15px; background: #1a1f1e; padding: 14px; box-shadow: 0 18px 45px #0008; }
 	.toast { position: fixed; right: 24px; bottom: 28px; z-index: 30; max-width: 360px; border-radius: 12px; background: #1a1f1e; padding: 13px 16px; color: #f5f6f6; box-shadow: 0 12px 30px #0007; }
-	@media (max-width: 639px) { .settings-content { display: block; padding-top: 4px; } .settings-nav { margin-bottom: 38px; } .settings-nav button { padding: 12px 0; } .upload-panel { right: 12px; bottom: 12px; left: 12px; width: auto; } .toast { right: 12px; bottom: 16px; left: 12px; text-align: center; } }
+	@media (max-width: 639px) { .sidebar { width: 190px; min-height: calc(100vh - 60px); } .sidebar.collapsed { width: 68px; } .sidebar nav { display: grid; } .sidebar .nav-item { justify-content: flex-start; } .sidebar.collapsed .nav-item { justify-content: center; } .settings-content { display: block; padding-top: 4px; } .settings-nav { margin-bottom: 38px; } .settings-nav button { padding: 12px 0; } .upload-panel { right: 12px; bottom: 12px; left: 12px; width: auto; } .toast { right: 12px; bottom: 16px; left: 12px; text-align: center; } }
 </style>
