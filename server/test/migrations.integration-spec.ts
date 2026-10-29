@@ -1,6 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 
 import { type Kysely, sql } from 'kysely';
@@ -28,6 +29,7 @@ import {
 } from '../src/database/migrations/migration-config.js';
 import {
   ASSET_LIFECYCLE_MIGRATION,
+  MAINTENANCE_RECOVERY_MIGRATION,
   AUTHENTICATION_MIGRATION,
   ASSET_OWNERSHIP_MIGRATION,
   createMigrationProvider,
@@ -154,6 +156,47 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     ).rows;
   }
 
+  async function syntheticMaintenanceReceipt() {
+    const owner = randomUUID();
+    const asset = randomUUID();
+    await sql`insert into public.app_user
+      (id, username, password_hash, role, status, password_change_required, created_at, updated_at)
+      values (${owner}::uuid, ${`owner_${owner.replaceAll('-', '').slice(0, 12)}`},
+        'synthetic-hash', 'user', 'active', false, now(), now())`.execute(db);
+    await sql`insert into public.asset_deletion
+      (asset_id, owner_id, accepted_lifecycle_version, storage_id,
+       originals_binding_id, thumbnails_binding_id, storage_layout_version,
+       original_extension, requested_at)
+      values (${asset}::uuid, ${owner}::uuid, 1, ${randomUUID()}::uuid,
+        ${randomUUID()}::uuid, ${randomUUID()}::uuid, 1, '.jpg',
+        '2026-10-29 10:11:12.123456+00'::timestamptz)`.execute(db);
+    return asset;
+  }
+
+  async function insertRetry(
+    asset: string,
+    state: string,
+    immediateAttempts = 0,
+    blockedReason: string | null = null,
+  ) {
+    const executing = state === 'reserved' || state === 'blocked_execution';
+    const scheduled =
+      state === 'due' || state === 'cooling' || state === 'blocked_admission';
+    await sql`insert into public.maintenance_retry_state
+      (asset_id, generation, state, lifetime_attempts, immediate_attempts,
+       next_eligible_at, attempt_id, attempt_kind, reservation_expires_at,
+       worker_incarnation_id, permit_generation, blocked_reason, created_at, updated_at)
+      values (${asset}::uuid, 1, ${state}, ${immediateAttempts}, ${immediateAttempts},
+        ${scheduled ? '2026-10-29 10:11:13.123456+00' : null}::timestamptz,
+        ${executing ? randomUUID() : null}::uuid,
+        ${executing ? (immediateAttempts === 3 ? 'cooling' : 'immediate') : null},
+        ${executing ? '2026-10-29 10:16:12+00' : null}::timestamptz,
+        ${executing ? randomUUID() : null}::uuid,
+        ${executing ? 1 : null}, ${blockedReason},
+        '2026-10-29 10:11:12+00'::timestamptz,
+        '2026-10-29 10:11:12+00'::timestamptz)`.execute(db);
+  }
+
   async function managedSnapshot() {
     return {
       history: await ledger(),
@@ -225,6 +268,33 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     };
   }
 
+  function m12Provider(baselineLegacy = false) {
+    return {
+      async getMigrations() {
+        const all =
+          await createMigrationProvider(baselineLegacy).getMigrations();
+        return Object.fromEntries(
+          [
+            INITIAL_ASSET_MIGRATION,
+            AUTHENTICATION_MIGRATION,
+            ASSET_OWNERSHIP_MIGRATION,
+            ASSET_LIFECYCLE_MIGRATION,
+          ].map((name) => [name, all[name]]),
+        );
+      },
+    };
+  }
+
+  async function migrateM12Only(baselineLegacy = false) {
+    const result = await new Migrator({
+      db,
+      migrationTableSchema: 'public',
+      provider: m12Provider(baselineLegacy),
+    }).migrateToLatest();
+    if (result.error) throw result.error;
+    return result.results ?? [];
+  }
+
   async function migrateM11Only(baselineLegacy = false) {
     const result = await new Migrator({
       db,
@@ -275,6 +345,11 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       },
       {
         migrationName: ASSET_LIFECYCLE_MIGRATION,
+        direction: 'Up',
+        status: 'Success',
+      },
+      {
+        migrationName: MAINTENANCE_RECOVERY_MIGRATION,
         direction: 'Up',
         status: 'Success',
       },
@@ -346,6 +421,9 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       'auth_session',
       'kysely_migration',
       'kysely_migration_lock',
+      'maintenance_reconciliation',
+      'maintenance_retry_state',
+      'maintenance_takeover_clearance',
       'storage_binding',
     ]);
     expect((await getMigrationStatus(db)).installation).toBe('managed');
@@ -361,7 +439,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     await migrateToLatest(db, true);
     expect(await assetSnapshot()).toEqual(original);
     const firstLedger = await ledger();
-    expect(firstLedger).toHaveLength(4);
+    expect(firstLedger).toHaveLength(5);
     expect(await migrateToLatest(db, true)).toEqual([]);
     expect(await migrateToLatest(db)).toEqual([]);
     expect(await ledger()).toEqual(firstLedger);
@@ -386,6 +464,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       { name: AUTHENTICATION_MIGRATION, applied: false },
       { name: ASSET_OWNERSHIP_MIGRATION, applied: false },
       { name: ASSET_LIFECYCLE_MIGRATION, applied: false },
+      { name: MAINTENANCE_RECOVERY_MIGRATION, applied: false },
     ]);
 
     expect(await migrateToLatest(db)).toEqual([
@@ -401,6 +480,11 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       },
       {
         migrationName: ASSET_LIFECYCLE_MIGRATION,
+        direction: 'Up',
+        status: 'Success',
+      },
+      {
+        migrationName: MAINTENANCE_RECOVERY_MIGRATION,
         direction: 'Up',
         status: 'Success',
       },
@@ -425,7 +509,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       name: ASSET_OWNERSHIP_MIGRATION,
       applied: false,
     });
-    expect(await migrateToLatest(db)).toHaveLength(2);
+    expect(await migrateToLatest(db)).toHaveLength(3);
     expect(await assetSnapshot()).toEqual(before);
     expect((await ledger()).slice(0, 2)).toEqual(history);
     expect(
@@ -740,7 +824,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     ).toBe(false);
   });
 
-  it('serializes two M10-to-M12 runners and records each version once', async () => {
+  it('serializes two M10-to-M13 runners and records each version once', async () => {
     await migrateM10Only();
     const other = createMigrationDatabase(migrationConfig(migrationEnv));
     try {
@@ -750,8 +834,8 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       ]);
       expect(
         results.map((result) => result.length).sort((a, b) => a - b),
-      ).toEqual([0, 2]);
-      expect(await ledger()).toHaveLength(4);
+      ).toEqual([0, 3]);
+      expect(await ledger()).toHaveLength(5);
       expect((await getMigrationStatus(db)).migrations[2].applied).toBe(true);
     } finally {
       await other.destroy();
@@ -790,7 +874,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
         )
       ).rows[0].present,
     ).toBe(false);
-    expect(await migrateToLatest(db)).toHaveLength(2);
+    expect(await migrateToLatest(db)).toHaveLength(3);
   });
 
   it('rejects an M11 ledger entry with only M10 schema', async () => {
@@ -857,8 +941,8 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       : mutation) {
       await sql.raw(statement).execute(db); // Static SQL in isolated disposable database.
     }
-    await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M12');
-    await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M12');
+    await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M13');
+    await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M13');
     expect(await ledger()).toEqual(history);
   });
 
@@ -1103,12 +1187,13 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     ]);
     expect(await assetSnapshot()).toEqual(originalAsset);
     expect(await ledger()).toEqual(originalLedger);
-    expect(await migrateToLatest(db)).toHaveLength(3);
+    expect(await migrateToLatest(db)).toHaveLength(4);
     expect((await ledger()).map((row) => row.name)).toEqual([
       INITIAL_ASSET_MIGRATION,
       AUTHENTICATION_MIGRATION,
       ASSET_OWNERSHIP_MIGRATION,
       ASSET_LIFECYCLE_MIGRATION,
+      MAINTENANCE_RECOVERY_MIGRATION,
     ]);
   });
 
@@ -1128,8 +1213,8 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       ]);
       expect(
         results.map((result) => result.length).sort((a, b) => a - b),
-      ).toEqual([0, 4]);
-      expect(await ledger()).toHaveLength(4);
+      ).toEqual([0, 5]);
+      expect(await ledger()).toHaveLength(5);
     } finally {
       await other.destroy();
     }
@@ -1286,7 +1371,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       'kysely_migration_lock',
     ]);
     expect(await ledger()).toEqual([]);
-    expect(await migrateToLatest(db)).toHaveLength(4);
+    expect(await migrateToLatest(db)).toHaveLength(5);
   });
 
   it('refuses M11 ownership rollback without changing history, schema or assets', async () => {
@@ -1387,12 +1472,12 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     expect(await assetSnapshot()).toEqual(original);
   });
 
-  it('upgrades an M11 installation without changing historical rows or ledger entries', async () => {
+  it('upgrades an M11 installation to M12 without changing historical rows or ledger entries', async () => {
     await legacyFixture();
     await migrateM11Only(true);
     const before = await assetSnapshot();
     const ledgerBefore = await ledger();
-    expect(await migrateToLatest(db)).toEqual([
+    expect(await migrateM12Only()).toEqual([
       {
         migrationName: ASSET_LIFECYCLE_MIGRATION,
         direction: 'Up',
@@ -1420,7 +1505,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
     ).toMatchObject({ rows: [{ count: 0 }] });
   });
 
-  it('serializes concurrent M11-to-M12 upgrades without duplicating the journal or ledger entry', async () => {
+  it('serializes concurrent M11-to-M13 upgrades without duplicating journals or ledger entries', async () => {
     await migrateM11Only();
     const other = createMigrationDatabase(migrationConfig(migrationEnv));
     try {
@@ -1430,12 +1515,13 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       ]);
       expect(
         results.map((result) => result.length).sort((a, b) => a - b),
-      ).toEqual([0, 1]);
+      ).toEqual([0, 2]);
       expect((await ledger()).map((row) => row.name)).toEqual([
         INITIAL_ASSET_MIGRATION,
         AUTHENTICATION_MIGRATION,
         ASSET_OWNERSHIP_MIGRATION,
         ASSET_LIFECYCLE_MIGRATION,
+        MAINTENANCE_RECOVERY_MIGRATION,
       ]);
       expect(await tables()).toContain('asset_deletion');
     } finally {
@@ -1444,12 +1530,12 @@ describe('PostgreSQL migrations and legacy baselining', () => {
   });
 
   it('refuses automatic M12 rollback without changing the schema or journal', async () => {
-    await migrateToLatest(db);
+    await migrateM12Only();
     const before = await managedSnapshot();
     const result = await new Migrator({
       db,
       migrationTableSchema: 'public',
-      provider: createMigrationProvider(),
+      provider: m12Provider(),
     }).migrateDown();
     expect(result.error).toMatchObject({
       message: expect.stringContaining(
@@ -1536,7 +1622,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
   ])(
     'rejects incompatible M12 schema without repair: %s',
     async (statement) => {
-      await migrateToLatest(db);
+      await migrateM12Only();
       const history = await ledger();
       await sql.raw(statement).execute(db);
       await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M12');
@@ -1551,7 +1637,7 @@ describe('PostgreSQL migrations and legacy baselining', () => {
   ])(
     'rejects a standalone unique index and CHECK masquerading as the %s primary key',
     async (table, column) => {
-      await migrateToLatest(db);
+      await migrateM12Only();
       expect((await getMigrationStatus(db)).installation).toBe('managed');
       const history = await ledger();
       const primaryKey = `${table}_pkey`;
@@ -1572,4 +1658,355 @@ describe('PostgreSQL migrations and legacy baselining', () => {
       expect(await ledger()).toEqual(history);
     },
   );
+
+  it('upgrades M12 to M13 without changing historical asset rows or ledger entries', async () => {
+    await legacyFixture();
+    await migrateM12Only(true);
+    const assets = await fullAssetRecords();
+    const history = await ledger();
+    expect(await migrateToLatest(db)).toEqual([
+      {
+        migrationName: MAINTENANCE_RECOVERY_MIGRATION,
+        direction: 'Up',
+        status: 'Success',
+      },
+    ]);
+    expect(await fullAssetRecords()).toEqual(assets);
+    expect((await ledger()).slice(0, 4)).toEqual(history);
+    expect((await ledger())[4].name).toBe(MAINTENANCE_RECOVERY_MIGRATION);
+    expect(await migrateToLatest(db)).toEqual([]);
+    expect((await getMigrationStatus(db)).installation).toBe('managed');
+  });
+
+  it('serializes concurrent M12-to-M13 migrations', async () => {
+    await migrateM12Only();
+    const other = createMigrationDatabase(migrationConfig(migrationEnv));
+    try {
+      const outcomes = await Promise.all([
+        migrateToLatest(db),
+        migrateToLatest(other),
+      ]);
+      expect(
+        outcomes.map((value) => value.length).sort((a, b) => a - b),
+      ).toEqual([0, 1]);
+      expect((await ledger()).at(-1)?.name).toBe(
+        MAINTENANCE_RECOVERY_MIGRATION,
+      );
+      expect(
+        (await sql`select * from public.maintenance_reconciliation`.execute(db))
+          .rows,
+      ).toHaveLength(1);
+    } finally {
+      await other.destroy();
+    }
+  });
+
+  it.each([
+    ['due', 0, null],
+    ['cooling', 3, null],
+    ['blocked_admission', 0, 'journal_inconsistent'],
+    ['reserved', 1, null],
+    ['blocked_execution', 1, 'quiescence_unknown'],
+    ['closed', 3, null],
+  ])('accepts the %s retry row shape', async (state, count, reason) => {
+    await migrateToLatest(db);
+    const asset = await syntheticMaintenanceReceipt();
+    await insertRetry(asset, state, count, reason);
+    expect(
+      (
+        await sql`select asset_id from public.maintenance_retry_state`.execute(
+          db,
+        )
+      ).rows,
+    ).toHaveLength(1);
+  });
+
+  it('rejects invalid retry shapes, counters, times and arbitrary error codes', async () => {
+    await migrateToLatest(db);
+    const asset = await syntheticMaintenanceReceipt();
+    await insertRetry(asset, 'due');
+    for (const statement of [
+      sql`update public.maintenance_retry_state set attempt_id = ${randomUUID()}::uuid`,
+      sql`update public.maintenance_retry_state set immediate_attempts = 3`,
+      sql`update public.maintenance_retry_state set lifetime_attempts = -1`,
+      sql`update public.maintenance_retry_state set generation = 0`,
+      sql`update public.maintenance_retry_state set next_eligible_at = 'infinity'`,
+      sql`update public.maintenance_retry_state set last_error_code = 'raw /private/path'`,
+      sql`update public.maintenance_retry_state set state = 'blocked_execution'`,
+    ]) {
+      await expect(statement.execute(db)).rejects.toMatchObject({
+        code: '23514',
+      });
+    }
+    const codes = [
+      'storage_unavailable',
+      'storage_identity_mismatch',
+      'unsupported_storage',
+      'unexpected_file',
+      'permission_denied',
+      'filesystem_error',
+      'durability_unavailable',
+      'inconsistent_state',
+      'unknown_outcome',
+    ];
+    for (const code of codes)
+      await sql`update public.maintenance_retry_state set last_error_code = ${code}`.execute(
+        db,
+      );
+    expect(
+      (
+        await sql<{ count: number }>`select count(*)::integer as count
+      from public.maintenance_retry_state where last_error_code = 'unknown_outcome'`.execute(
+          db,
+        )
+      ).rows[0].count,
+    ).toBe(1);
+  });
+
+  it('enforces clearance ordering, uniqueness, receipt identity and real foreign keys', async () => {
+    await migrateToLatest(db);
+    const first = await syntheticMaintenanceReceipt();
+    const second = await syntheticMaintenanceReceipt();
+    await insertRetry(first, 'blocked_execution', 1, 'quiescence_unknown');
+    await insertRetry(second, 'blocked_execution', 1, 'quiescence_unknown');
+    const attempt = (
+      await sql<{ attempt_id: string; worker_incarnation_id: string }>`
+      select attempt_id, worker_incarnation_id from public.maintenance_retry_state
+      where asset_id = ${first}::uuid`.execute(db)
+    ).rows[0];
+    const clearance = randomUUID();
+    await sql`insert into public.maintenance_takeover_clearance
+      (clearance_id, asset_id, blocked_generation, blocked_attempt_id,
+       blocked_worker_incarnation_id, blocked_permit_generation,
+       disarmed_permit_generation, operator_reference, evidence_reference, recorded_at)
+      values (${clearance}::uuid, ${first}::uuid, 1, ${attempt.attempt_id}::uuid,
+        ${attempt.worker_incarnation_id}::uuid, 1, 2, 'operator-1', 'evidence-1',
+        clock_timestamp())`.execute(db);
+    await sql`update public.maintenance_retry_state set last_clearance_id =
+      ${clearance}::uuid where asset_id = ${first}::uuid`.execute(db);
+    await expect(
+      sql`update public.maintenance_retry_state set last_clearance_id =
+      ${clearance}::uuid where asset_id = ${second}::uuid`.execute(db),
+    ).rejects.toMatchObject({ code: '23503' });
+    await expect(
+      sql`insert into public.maintenance_takeover_clearance
+      (clearance_id, asset_id, blocked_generation, blocked_attempt_id,
+       blocked_worker_incarnation_id, blocked_permit_generation,
+       disarmed_permit_generation, operator_reference, evidence_reference, recorded_at)
+      values (${randomUUID()}::uuid, ${first}::uuid, 1, ${attempt.attempt_id}::uuid,
+        ${attempt.worker_incarnation_id}::uuid, 1, 2, 'operator-1', 'evidence-1',
+        clock_timestamp())`.execute(db),
+    ).rejects.toMatchObject({ code: '23505' });
+    await expect(
+      sql`insert into public.maintenance_retry_state
+      (asset_id, generation, state, lifetime_attempts, immediate_attempts,
+       next_eligible_at, created_at, updated_at)
+      values (${randomUUID()}::uuid, 1, 'due', 0, 0, now(), now(), now())`.execute(
+        db,
+      ),
+    ).rejects.toMatchObject({ code: '23503' });
+  });
+
+  it('fences a stale SQL generation CAS after a competing transaction commits', async () => {
+    await migrateToLatest(db);
+    const asset = await syntheticMaintenanceReceipt();
+    await insertRetry(asset, 'due');
+    const contenderName = 'saefr_m13b_cas_contender';
+    const contender = createMigrationDatabase({
+      ...migrationConfig(migrationEnv),
+      application_name: contenderName,
+      idleTimeoutMillis: 30_000,
+    });
+    let release!: () => void;
+    let acquired!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const locked = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    const holder = db.transaction().execute(async (transaction) => {
+      await sql`update public.maintenance_retry_state set generation = 2
+        where asset_id = ${asset}::uuid and generation = 1`.execute(
+        transaction,
+      );
+      acquired();
+      await gate;
+    });
+    try {
+      await locked;
+      const stale = sql<{
+        generation: string;
+      }>`update public.maintenance_retry_state
+        set generation = 3 where asset_id = ${asset}::uuid and generation = 1
+        returning generation`.execute(contender);
+      const deadline = Date.now() + 4000;
+      let waiting = false;
+      while (Date.now() < deadline) {
+        const active = await sql<{
+          count: number;
+        }>`select count(*)::integer as count
+          from pg_catalog.pg_stat_activity where datname = ${databaseName}
+            and application_name = ${contenderName} and wait_event_type = 'Lock'
+            and query like '%maintenance_retry_state%'`.execute(admin.db);
+        if (active.rows[0].count === 1) {
+          waiting = true;
+          break;
+        }
+        await delay(10);
+      }
+      expect(waiting).toBe(true);
+      release();
+      await holder;
+      expect((await stale).rows).toEqual([]);
+      expect(
+        (
+          await sql<{ generation: string }>`select generation
+        from public.maintenance_retry_state where asset_id = ${asset}::uuid`.execute(
+            db,
+          )
+        ).rows[0].generation,
+      ).toBe('2');
+    } finally {
+      release();
+      await holder;
+      await contender.destroy();
+    }
+  });
+
+  it('enforces finite complete reconciliation checkpoints and microsecond keys', async () => {
+    await migrateToLatest(db);
+    const initial = (
+      await sql`select * from public.maintenance_reconciliation`.execute(db)
+    ).rows;
+    expect(initial).toHaveLength(1);
+    expect(initial[0]).toMatchObject({
+      leader_epoch: '0',
+      pass_status: 'complete',
+      pass_id: null,
+      upper_requested_at: null,
+      cursor_requested_at: null,
+    });
+    for (const statement of [
+      sql`update public.maintenance_reconciliation set upper_requested_at = 'infinity'`,
+      sql`update public.maintenance_reconciliation set leader_epoch = -1`,
+      sql`update public.maintenance_reconciliation set pass_status = 'incomplete'`,
+      sql`update public.maintenance_reconciliation set pass_owner_epoch = -1`,
+      sql`update public.maintenance_reconciliation set leader_token = ${randomUUID()}::uuid`,
+    ])
+      await expect(statement.execute(db)).rejects.toMatchObject({
+        code: '23514',
+      });
+    const pass = randomUUID();
+    const upper = randomUUID();
+    const cursor = randomUUID();
+    await sql`update public.maintenance_reconciliation set leader_epoch = 1,
+      pass_status = 'incomplete', pass_id = ${pass}::uuid, pass_owner_epoch = 1,
+      upper_requested_at = '2026-10-29 10:11:12.123456+00',
+      upper_asset_id = ${upper}::uuid`.execute(db);
+    await expect(
+      sql`update public.maintenance_reconciliation
+      set pass_owner_epoch = 0`.execute(db),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      sql`update public.maintenance_reconciliation
+      set upper_asset_id = null`.execute(db),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      sql`update public.maintenance_reconciliation
+      set cursor_requested_at = 'infinity', cursor_asset_id = ${cursor}::uuid`.execute(
+        db,
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      sql`update public.maintenance_reconciliation
+      set cursor_requested_at = '2026-10-29 10:11:13+00', cursor_asset_id = ${cursor}::uuid`.execute(
+        db,
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      sql`update public.maintenance_reconciliation
+      set cursor_requested_at = '2026-10-29 10:11:12.123455+00'`.execute(db),
+    ).rejects.toMatchObject({ code: '23514' });
+    await sql`update public.maintenance_reconciliation
+      set cursor_requested_at = '2026-10-29 10:11:12.123455+00',
+        cursor_asset_id = ${cursor}::uuid, pass_status = 'complete'`.execute(
+      db,
+    );
+    const key = (
+      await sql<{ microseconds: string }>`select
+      to_char(upper_requested_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS.US')
+        as microseconds from public.maintenance_reconciliation`.execute(db)
+    ).rows[0].microseconds;
+    expect(key).toBe('2026-10-29 10:11:12.123456');
+  });
+
+  it.each([
+    'alter table public.maintenance_retry_state drop constraint maintenance_retry_state_shape_check',
+    'alter table public.maintenance_retry_state drop constraint maintenance_retry_state_error_check',
+    'drop index public.maintenance_retry_due_idx',
+    'drop index public.maintenance_retry_attempt_id_idx',
+    'drop index public.asset_deletion_pending_global_requested_id_idx',
+    'alter table public.maintenance_retry_state add column unexpected text',
+    'delete from public.maintenance_reconciliation',
+    'alter table public.maintenance_reconciliation drop constraint maintenance_reconciliation_pass_check',
+  ])(
+    'rejects incompatible M13 schema without repair: %s',
+    async (statement) => {
+      await migrateToLatest(db);
+      const history = await ledger();
+      await sql.raw(statement).execute(db);
+      await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M13');
+      await expect(migrateToLatest(db)).rejects.toThrow('Incompatible M13');
+      await expect(
+        new AuthSessionService(
+          { db } as DatabaseService,
+          new PasswordService(),
+        ).assertReady(),
+      ).rejects.toThrow();
+      expect(await ledger()).toEqual(history);
+    },
+  );
+
+  it('rejects a same-named but weakened M13 CHECK and changed partial-index predicate', async () => {
+    await migrateToLatest(db);
+    const history = await ledger();
+    await sql`alter table public.maintenance_retry_state
+      drop constraint maintenance_retry_state_shape_check`.execute(db);
+    await sql`alter table public.maintenance_retry_state
+      add constraint maintenance_retry_state_shape_check check (true)`.execute(
+      db,
+    );
+    await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M13');
+    expect(await ledger()).toEqual(history);
+  });
+
+  it('rejects a replacement M13 due index with the wrong predicate', async () => {
+    await migrateToLatest(db);
+    await sql`drop index public.maintenance_retry_due_idx`.execute(db);
+    await sql`create index maintenance_retry_due_idx on public.maintenance_retry_state
+      (next_eligible_at, asset_id) where state = 'due'`.execute(db);
+    await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M13');
+  });
+
+  it('rejects a standalone unique index and CHECK pretending to be the reconciliation primary key', async () => {
+    await migrateToLatest(db);
+    await sql`alter table public.maintenance_reconciliation
+      drop constraint maintenance_reconciliation_pkey`.execute(db);
+    await sql`alter table public.maintenance_reconciliation
+      add constraint maintenance_reconciliation_pkey check (true)`.execute(db);
+    await sql`create unique index maintenance_reconciliation_pkey
+      on public.maintenance_reconciliation (singleton)`.execute(db);
+    await expect(getMigrationStatus(db)).rejects.toThrow('Incompatible M13');
+  });
+
+  it('rejects a partial M13 schema before the migration is recorded', async () => {
+    await migrateM12Only();
+    const history = await ledger();
+    await sql`create table public.maintenance_retry_state (asset_id uuid)`.execute(
+      db,
+    );
+    await expect(migrateToLatest(db)).rejects.toThrow('M13');
+    expect(await ledger()).toEqual(history);
+  });
 });
