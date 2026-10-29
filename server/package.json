@@ -34,7 +34,8 @@
     "auth:recover": "npm run build && node dist/users/operator-cli.js recover",
     "auth:prune-sessions": "npm run build && node dist/users/operator-cli.js prune",
     "start:worker": "node dist/worker/main.js",
-    "test:redis": "npm run build && node ./test/run-redis.mjs"
+    "test:redis": "npm run build && node ./test/run-redis.mjs",
+    "recovery:permit": "npm run build && node dist/worker/recovery-permit-operator-cli.js"
   },
   "dependencies": {
     "@fastify/multipart": "^10.1.4",
