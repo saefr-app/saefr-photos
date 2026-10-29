@@ -2,6 +2,7 @@
 	import { Check, RotateCcw, Trash2 } from '@lucide/svelte';
 	import GalleryShell from '../../lib/components/GalleryShell.svelte';
 	import { trashedPhotos } from '../../lib/fixtures';
+	import SwipeToast from '../../lib/components/svelte-bits/SwipeToast.svelte';
 
 	let confirmId = $state<string | null>(null);
 	let restored = $state<string[]>([]);
@@ -37,7 +38,14 @@
 			</div>
 		</div>
 	{/if}
-	{#if toast}<div class="toast" role="status">{toast}</div>{/if}
+	<SwipeToast
+		open={Boolean(toast)}
+		title={toast}
+		description="The synthetic library state has been updated."
+		onClose={() => (toast = '')}
+		duration={2600}
+		fuse="bottom"
+	/>
 </GalleryShell>
 
 <style>
@@ -46,6 +54,5 @@
 	.tile-actions { display:flex; align-items:center; justify-content:space-between; gap:4px; padding:7px 2px; color:var(--color-text-secondary); font-size:11px; } .tile-actions span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .tile-actions div { display:flex; } .tile-actions button { min-width:34px; min-height:34px; border:0; background:none; color:var(--color-text-secondary); cursor:pointer; } .tile-actions button:hover { color:var(--color-text-primary); } .tile-actions .danger { color:var(--color-danger); }
 	.empty { display:grid; place-items:center; padding:100px 20px; color:var(--color-text-secondary); text-align:center; } .empty h2 { color:var(--color-text-primary); font-size:17px; margin:14px 0 4px; } .empty p { margin:0; }
 	.backdrop { position:fixed; z-index:8; inset:0; display:grid; place-items:center; padding:20px; background:#0009; } .dialog { width:min(420px,100%); padding:24px; border-radius:16px; background:var(--color-elevated); box-shadow:0 18px 50px #000b; } .dialog h2 { margin:0; font-size:18px; } .dialog p { color:var(--color-text-secondary); line-height:1.5; } .dialog-actions { display:flex; justify-content:flex-end; gap:12px; margin-top:24px; } .dialog-actions button { min-height:44px; border:0; background:none; color:var(--color-text-primary); cursor:pointer; padding:0 8px; } .dialog-actions .delete { color:var(--color-danger); }
-	.toast { position:fixed; right:24px; bottom:24px; padding:13px 16px; border-radius:12px; background:var(--color-elevated); color:var(--color-text-primary); box-shadow:0 10px 24px #0008; }
-	@media (max-width:899px) { .grid { grid-template-columns:repeat(4,minmax(0,1fr)); } } @media (max-width:599px) { .grid { grid-template-columns:repeat(3,minmax(0,1fr)); } .toast { right:10px; left:10px; bottom:78px; text-align:center; } } @media (max-width:360px) { .grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+	@media (max-width:899px) { .grid { grid-template-columns:repeat(4,minmax(0,1fr)); } } @media (max-width:599px) { .grid { grid-template-columns:repeat(3,minmax(0,1fr)); } } @media (max-width:360px) { .grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 </style>

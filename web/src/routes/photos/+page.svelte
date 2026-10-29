@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { RefreshCw, Upload } from '@lucide/svelte';
 	import GalleryShell from '../../lib/components/GalleryShell.svelte';
+	import FadeContent from '../../lib/components/svelte-bits/FadeContent.svelte';
 	import StatusMark from '../../lib/components/svelte-bits/StatusMark.svelte';
 	import { photos } from '../../lib/fixtures';
 
@@ -17,16 +18,18 @@
 		<div class="notice" role="status"><span>Some photos could not be loaded. Your local library is still available.</span><button onclick={() => (showError = false)}><RefreshCw size={15} /> Retry</button></div>
 	{/if}
 	{#each groups as group}
-		<section class="group" aria-labelledby={group}>
-			<h2 id={group}>Date added · {group}</h2>
-			<div class="grid">
-				{#each photos.filter((photo) => photo.added === group) as photo}
-					<a class="tile" href={`/photos/${photo.id}`} aria-label={`Open ${photo.filename}`}>
-						<img src={photo.color} alt="" loading="lazy" />
-					</a>
-				{/each}
-			</div>
-		</section>
+		<FadeContent blur duration={420} class="photo-group">
+			<section aria-labelledby={group}>
+				<h2 id={group}>Date added · {group}</h2>
+				<div class="grid">
+					{#each photos.filter((photo) => photo.added === group) as photo}
+						<a class="tile" href={`/photos/${photo.id}`} aria-label={`Open ${photo.filename}`}>
+							<img src={photo.color} alt="" loading="lazy" />
+						</a>
+					{/each}
+				</div>
+			</section>
+		</FadeContent>
 	{/each}
 	<div class="upload-summary" aria-live="polite">
 		<StatusMark status="pending" label="Ready to upload" size={16} />
@@ -40,7 +43,7 @@
 	.text-action, .notice button { display:flex; align-items:center; gap:8px; border:0; background:none; color:var(--color-text-primary); min-height:44px; cursor:pointer; }
 	.notice { display:flex; justify-content:space-between; gap:16px; align-items:center; padding:12px 0; margin-bottom:22px; color:var(--color-danger); font-size:13px; }
 	.notice button { color:var(--color-text-primary); white-space:nowrap; }
-	.group { margin-bottom:30px; } h2 { color:var(--color-text-secondary); font-size:13px; font-weight:500; margin:0 0 10px; }
+	:global(.photo-group) { margin-bottom:30px; } h2 { color:var(--color-text-secondary); font-size:13px; font-weight:500; margin:0 0 10px; }
 	.grid { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:4px; }
 	.tile { display:block; aspect-ratio:1; overflow:hidden; background:var(--color-input); border-radius:3px; }
 	.tile img { display:block; width:100%; height:100%; object-fit:cover; transition:filter .14s ease, transform .2s ease; }

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Camera, CircleUserRound, Settings, Trash2, Upload, X } from '@lucide/svelte';
+	import WarmTooltip from './svelte-bits/WarmTooltip.svelte';
 
 	let { title = 'Photos', active = 'photos', children } = $props();
 	let uploadOpen = $state(false);
@@ -9,7 +10,9 @@
 	<header class="topbar">
 		<a class="wordmark" href="/photos" aria-label="Saefr home">saefr</a>
 		<div class="mobile-title">{title}</div>
-		<button class="icon-action account" aria-label="Account"><CircleUserRound size={20} /></button>
+		<WarmTooltip content="Account settings" shortcut="⌘ ," side="bottom">
+			<button class="icon-action account" aria-label="Account"><CircleUserRound size={20} /></button>
+		</WarmTooltip>
 	</header>
 	<aside class="sidebar" aria-label="Primary navigation">
 		<nav>
