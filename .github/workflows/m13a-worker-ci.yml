@@ -41,5 +41,8 @@ jobs:
       - name: Disposable PostgreSQL integration tests
         timeout-minutes: 20
         run: npm run test:integration
+      - name: Combined disposable maintenance integration tests
+        timeout-minutes: 15
+        run: npm run test:maintenance
       - name: Runtime smoke checks
         run: npm run test:runtime-smoke

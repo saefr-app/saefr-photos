@@ -252,7 +252,9 @@ describe('disposable Redis and BullMQ foundation', () => {
         };
       }
     ).worker;
-    await consumer.close(true);
+    // This fixture models an externally stopped consumer, not unsafe forced
+    // closure underneath a pending BullMQ scheduler/fetch continuation.
+    await consumer.close(false);
     await eventually(() => !consumer.isRunning());
     await runtime.controlTick();
     expect(runtime.diagnostics().state).toBe('degraded');

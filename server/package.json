@@ -35,6 +35,7 @@
     "auth:prune-sessions": "npm run build && node dist/users/operator-cli.js prune",
     "start:worker": "node dist/worker/main.js",
     "test:redis": "npm run build && node ./test/run-redis.mjs",
+    "test:maintenance": "npm run build && node ./test/run-redis.mjs --maintenance",
     "recovery:permit": "npm run build && node dist/worker/recovery-permit-operator-cli.js"
   },
   "dependencies": {
