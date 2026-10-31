@@ -2,6 +2,10 @@ import { Queue, Worker, type Job } from 'bullmq';
 
 import { safeErrorCode } from '../errors/safe-error-code.js';
 import {
+  InitializationSafeRedisConnection,
+  INITIALIZING_REDIS_CLOSE_MS,
+} from './initialization-safe-redis-connection.js';
+import {
   SYNTHETIC_JOB,
   SYNTHETIC_SCHEDULER,
   parseSyntheticJob,
@@ -25,17 +29,22 @@ export interface WorkerDiagnostics {
   lastControlSuccessAt: string | null;
   pendingProducerOperations: number;
   consumerRunning: boolean;
+  consumerInitializationConfirmed: boolean;
 }
 
 export class WorkerRuntime {
   private readonly config: WorkerConfig;
   private queue?: Queue;
   private worker?: Worker;
+  private workerReadiness?: Promise<unknown>;
+  private consumerInitializationConfirmed = false;
   private timer?: NodeJS.Timeout;
   private runTask?: Promise<void>;
   private runTaskFailed = false;
+  private cleanupFailed = false;
   private stopTask?: Promise<boolean>;
   private producerReset?: Promise<void>;
+  private readonly initializedProducers = new WeakSet<Queue>();
   private readonly pendingProducer = new Set<Promise<unknown>>();
   private readonly activeProcessors = new Set<Promise<unknown>>();
   private state: WorkerDiagnostics['state'] = 'stopped';
@@ -54,6 +63,7 @@ export class WorkerRuntime {
     private readonly processSynthetic: (
       job: SyntheticJob,
     ) => Promise<void> = async () => undefined,
+    private readonly onRedisReady: () => void = () => undefined,
   ) {
     this.config = config;
   }
@@ -67,6 +77,7 @@ export class WorkerRuntime {
       lastControlSuccessAt: this.lastControlSuccessAt,
       pendingProducerOperations: this.pendingProducer.size,
       consumerRunning: this.worker?.isRunning() ?? false,
+      consumerInitializationConfirmed: this.consumerInitializationConfirmed,
     };
   }
 
@@ -116,20 +127,28 @@ export class WorkerRuntime {
   }
 
   private createQueue(): Queue {
-    const queue = new Queue(QUEUE_NAME, {
-      connection: this.connection(1),
-      prefix: this.config.prefix,
-      defaultJobOptions: {
-        attempts: 2,
-        backoff: { type: 'exponential', delay: 1_000 },
-        removeOnComplete: { count: 100 },
-        removeOnFail: { count: 100 },
+    const queue = new Queue(
+      QUEUE_NAME,
+      {
+        connection: this.connection(1),
+        prefix: this.config.prefix,
+        defaultJobOptions: {
+          attempts: 2,
+          backoff: { type: 'exponential', delay: 1_000 },
+          removeOnComplete: { count: 100 },
+          removeOnFail: { count: 100 },
+        },
       },
-    });
+      InitializationSafeRedisConnection,
+    );
     queue.on('error', (error: unknown) => {
       this.producerHealthy = false;
       this.degrade(error);
     });
+    void queue.waitUntilReady().then(
+      () => this.initializedProducers.add(queue),
+      () => undefined, // the existing error handler and start() retain the failure
+    );
     return queue;
   }
 
@@ -140,18 +159,10 @@ export class WorkerRuntime {
     this.producerReset = (async () => {
       let disconnected = false;
       try {
-        // Command timeouts alone leave entries in ioredis's commandQueue.
-        // Disconnecting flushes them before the producer is replaced.
-        const client = await this.withDeadline(failed.client, CLOSE_MS);
-        const closing = failed.close();
-        client.disconnect();
-        try {
-          await this.withDeadline(closing, CLOSE_MS);
-        } catch {
-          // BullMQ's quit may fail after a forced disconnect. The old producer
-          // is safe to replace only after ioredis confirms its socket ended.
-        }
-        disconnected = client.status === 'end';
+        // The connection adapter waits for a real end event before BullMQ can
+        // mutate driver status or remove forwarding listeners.
+        await this.withDeadline(failed.close(), CLOSE_MS);
+        disconnected = true;
       } catch {
         this.degrade(new Error('Producer cleanup incomplete'));
         return;
@@ -181,6 +192,8 @@ export class WorkerRuntime {
         QUEUE_NAME,
         async (job: Job) => {
           const processing = (async () => {
+            if (this.stopRequested)
+              throw new Error('Synthetic worker stopping');
             if (job.name !== SYNTHETIC_JOB)
               throw new Error('Unsupported synthetic job');
             const payload = parseSyntheticJob(job.data);
@@ -205,16 +218,24 @@ export class WorkerRuntime {
       );
       this.worker.on('error', (error: unknown) => {
         this.consumerConnected = false;
+        // BullMQ emits cleanup failures but may still resolve close(). Retain
+        // that evidence independently of normal operational degradation.
+        if (this.stopRequested) this.cleanupFailed = true;
         this.degrade(error);
       });
       this.worker.on('ready', () => {
         this.consumerConnected = true;
         this.refreshHealth();
+        if (!this.stopRequested) this.onRedisReady();
       });
       this.worker.on('failed', () => {
         this.failed++;
       });
-      await this.withDeadline(this.worker.waitUntilReady(), 5_000);
+      this.workerReadiness = this.worker.waitUntilReady().then((client) => {
+        this.consumerInitializationConfirmed = true;
+        return client;
+      });
+      await this.withDeadline(this.workerReadiness, 5_000);
       this.requireStarting();
       this.consumerConnected = true;
       this.runTask = this.worker.run().then(
@@ -284,6 +305,7 @@ export class WorkerRuntime {
       const current = await this.trackProducer(
         queue.getJobScheduler(SYNTHETIC_SCHEDULER),
       );
+      if (this.stopRequested) return;
       if (!current || current.every !== SCHEDULE_MS) {
         await this.trackProducer(
           queue.upsertJobScheduler(
@@ -294,6 +316,7 @@ export class WorkerRuntime {
         );
         this.schedulerRepairs++;
       }
+      if (this.stopRequested) return;
       this.lastControlSuccessAt = new Date().toISOString();
       this.producerHealthy = true;
       if (this.worker?.isRunning()) {
@@ -341,9 +364,9 @@ export class WorkerRuntime {
 
   async stop(): Promise<boolean> {
     if (this.stopTask) return this.stopTask;
+    this.requestStop();
     if (this.state === 'stopped' && !this.queue && !this.worker) return true;
     if (this.state === 'incomplete') return false;
-    this.requestStop();
     this.stopTask = this.closeResources();
     return this.stopTask;
   }
@@ -355,32 +378,66 @@ export class WorkerRuntime {
     const queue = this.queue;
     let complete = true;
     if (worker) {
+      // BullMQ constructs its blocking connection internally. Do not close it while
+      // initialization can still emit after listener removal. Failure/timeout is
+      // explicitly incomplete; retain the resources for the process supervisor.
+      let initialized = false;
       try {
-        // This stops intake immediately. BullMQ close(false) cannot later be
-        // upgraded to force, so drain the run loop before calling close(true).
-        await this.withDeadline(worker.pause(true), CLOSE_MS);
-        if (this.activeProcessors.size)
-          await this.withDeadline(
-            Promise.allSettled(this.activeProcessors),
-            SHUTDOWN_MS,
-          );
+        if (!this.workerReadiness)
+          throw new Error('Consumer readiness unknown');
+        await this.withDeadline(this.workerReadiness, CLOSE_MS);
+        initialized = true;
       } catch {
         complete = false;
       }
-      try {
-        await this.withDeadline(worker.close(true), CLOSE_MS);
-      } catch {
-        complete = false;
+      if (initialized) {
+        let drained = false;
+        try {
+          // The public draining pause interrupts only the dedicated blocking
+          // read, then awaits fetch/scheduler/processor work. It keeps the base
+          // connection alive and may reconnect the paused blocker after draining.
+          await this.withDeadline(worker.pause(false), SHUTDOWN_MS);
+          if (this.runTask) await this.withDeadline(this.runTask, SHUTDOWN_MS);
+          drained = !worker.isRunning() && !this.activeProcessors.size;
+        } catch {
+          complete = false;
+        }
+        if (drained) {
+          try {
+            const clients = await this.withDeadline(
+              Promise.all([worker.client, worker.waitUntilReady()]),
+              CLOSE_MS,
+            );
+            // BullMQ may resolve close after swallowing cleanup errors and may
+            // assign status=end itself. Observe real end events before teardown.
+            const ended = Promise.all(
+              clients.map((client) => {
+                if (client.status === 'end') return Promise.resolve();
+                return new Promise<void>((resolve) => {
+                  const failed = () => {
+                    this.cleanupFailed = true;
+                  };
+                  client.on('error', failed);
+                  client.once('end', () => {
+                    client.off('error', failed);
+                    resolve();
+                  });
+                });
+              }),
+            );
+            await this.withDeadline(worker.close(true), CLOSE_MS);
+            await this.withDeadline(ended, CLOSE_MS);
+          } catch {
+            complete = false;
+          }
+        } else {
+          // No safe in-process cancellation is available. Do not close a socket
+          // under BullMQ's still-running scheduler retry. Supervision must end it.
+          complete = false;
+        }
+        if (this.runTaskFailed || worker.isRunning()) complete = false;
+        if (this.activeProcessors.size) complete = false;
       }
-      try {
-        // Force close does not wait for the consumer's run loop. Confirm that
-        // it has settled before reporting the runtime as stopped.
-        if (this.runTask) await this.withDeadline(this.runTask, CLOSE_MS);
-      } catch {
-        complete = false;
-      }
-      if (this.runTaskFailed || worker.isRunning()) complete = false;
-      if (this.activeProcessors.size) complete = false;
     }
     try {
       if (this.producerReset)
@@ -395,15 +452,19 @@ export class WorkerRuntime {
     }
     if (queue) {
       try {
-        await this.withDeadline(queue.close(), CLOSE_MS);
+        await this.withDeadline(
+          queue.close(),
+          this.initializedProducers.has(queue)
+            ? CLOSE_MS
+            : INITIALIZING_REDIS_CLOSE_MS,
+        );
       } catch {
         complete = false;
-        await this.withDeadline(queue.disconnect(), CLOSE_MS).catch(
-          () => undefined,
-        );
+        // The adapter retains listeners and the pending retirement promise.
+        // Another library disconnect cannot establish disposal acknowledgement.
       }
     }
-    if (this.pendingProducer.size) complete = false;
+    if (this.pendingProducer.size || this.cleanupFailed) complete = false;
     if (complete) {
       this.worker = undefined;
       this.queue = undefined;

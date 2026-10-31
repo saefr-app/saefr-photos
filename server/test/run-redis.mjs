@@ -11,6 +11,10 @@ let containerId;
 let child;
 let interrupted = false;
 let forceKill;
+const maintenanceOnly =
+  process.argv.length === 3 && process.argv[2] === '--maintenance';
+const deliveryOnly =
+  process.argv.length === 3 && process.argv[2] === '--delivery';
 
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(signal, () => {
@@ -18,7 +22,11 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.exitCode = 1;
     if (child && child.exitCode === null) {
       child.kill(signal);
-      forceKill ??= setTimeout(() => child.kill('SIGKILL'), 5000);
+      // The nested PostgreSQL runner needs time to stop its child and remove its own container.
+      forceKill ??= setTimeout(
+        () => child.kill('SIGKILL'),
+        maintenanceOnly ? 20000 : 5000,
+      );
       forceKill.unref();
     }
   });
@@ -41,7 +49,7 @@ function owned(info) {
 }
 
 try {
-  if (process.argv.length !== 2)
+  if (process.argv.length !== 2 && !maintenanceOnly && !deliveryOnly)
     throw new Error('Unsupported Redis test arguments');
   // No Compose project, named volume, bind mount, or application .env is used.
   const started = await docker(
@@ -57,6 +65,11 @@ try {
     '--publish',
     '127.0.0.1::6379',
     image,
+    // Keep container/network identity stable while restarting only the test process.
+    'sh',
+    '-c',
+    'trap \'kill -TERM "$redis_pid" 2>/dev/null; wait "$redis_pid"; exit 0\' TERM INT HUP; while :; do /usr/local/bin/docker-entrypoint.sh "$@" & redis_pid=$!; wait "$redis_pid"; sleep 0.1; done',
+    'saefr-disposable-redis',
     'redis-server',
     '--requirepass',
     password,
@@ -110,12 +123,17 @@ try {
   const code = await new Promise((resolve, reject) => {
     child = spawn(
       process.execPath,
-      [
-        'node_modules/vitest/vitest.mjs',
-        'run',
-        '--config',
-        'vitest.config.redis.ts',
-      ],
+      maintenanceOnly
+        ? ['test/run-integration.mjs', '--maintenance']
+        : [
+            'node_modules/vitest/vitest.mjs',
+            'run',
+            '--config',
+            'vitest.config.redis.ts',
+            ...(deliveryOnly
+              ? ['test/recovery-delivery.redis-spec.ts', '--reporter=verbose']
+              : []),
+          ],
       {
         stdio: 'inherit',
         env: {
@@ -164,7 +182,7 @@ try {
       typeof error === 'object' &&
       'stderr' in error &&
       typeof error.stderr === 'string' &&
-      error.stderr.includes('No such object')
+      /no such object/i.test(error.stderr)
     )) {
       console.error(
         `Could not verify or remove disposable container ${name}; inspect before manual cleanup.`,

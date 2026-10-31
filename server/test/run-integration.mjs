@@ -70,17 +70,24 @@ async function waitForDatabase() {
 try {
   const migrationsOnly = process.argv.includes('--migrations');
   const nativeOnly = process.argv.includes('--native-storage-http');
+  const maintenanceOnly = process.argv.includes('--maintenance');
   if (
     process.argv
       .slice(2)
       .some(
         (argument) =>
-          argument !== '--migrations' && argument !== '--native-storage-http',
+          argument !== '--migrations' &&
+          argument !== '--native-storage-http' &&
+          argument !== '--maintenance',
       ) ||
-    (migrationsOnly && nativeOnly)
+    Number(migrationsOnly) + Number(nativeOnly) + Number(maintenanceOnly) > 1
   ) {
     throw new Error('Unsupported integration test filter');
   }
+  if (maintenanceOnly && !process.env.SAEFR_REDIS_TEST_CONTAINER_ID)
+    throw new Error(
+      'Combined maintenance tests require the disposable Redis runner',
+    );
   if (
     nativeOnly &&
     (process.env.GITHUB_ACTIONS !== 'true' ||
@@ -140,7 +147,9 @@ try {
         'node_modules/vitest/vitest.mjs',
         'run',
         '--config',
-        'vitest.config.integration.ts',
+        maintenanceOnly
+          ? 'vitest.config.maintenance.ts'
+          : 'vitest.config.integration.ts',
         ...(migrationsOnly
           ? ['test/migrations.integration-spec.ts']
           : nativeOnly
@@ -199,7 +208,7 @@ try {
       typeof error === 'object' &&
       'stderr' in error &&
       typeof error.stderr === 'string' &&
-      error.stderr.includes('No such object')
+      /no such object/i.test(error.stderr)
     ) {
       // Docker already removed it (or it was never created).
     } else {

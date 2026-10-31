@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { Kysely, PostgresDialect } from 'kysely';
-import { Pool } from 'pg';
+import { PermitDatabasePool } from './permit-database-pool.js';
 import { posix } from 'node:path';
 
 import type { Database } from '../database/database.types.js';
@@ -108,6 +108,7 @@ export function createPermitPairing(
 ): {
   pairing: DatabasePermitPairing;
   close: () => Promise<void>;
+  databaseDiagnostics: () => ReturnType<PermitDatabasePool['diagnostics']>;
 } {
   const root = normalizeRestoreRoot(required(env, 'STORAGE_ROOT'));
   if (
@@ -126,7 +127,7 @@ export function createPermitPairing(
     STORAGE_ORIGINALS_PROFILE: 'linux-ext4-v1',
     STORAGE_THUMBNAILS_PROFILE: 'linux-ext4-v1',
   });
-  const pool = new Pool({
+  const pool = new PermitDatabasePool({
     host: required(env, 'POSTGRES_HOST'),
     port,
     database: required(env, 'POSTGRES_DB'),
@@ -140,9 +141,6 @@ export function createPermitPairing(
       '-c search_path=pg_catalog,public -c lock_timeout=2000 -c default_transaction_read_only=on',
     application_name: 'saefr-recovery-permit',
   });
-  pool.on('error', () =>
-    console.error('Recovery permit database unavailable.'),
-  );
   const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
   // Existing verifier consumes only .db; no API DatabaseService/pool is bootstrapped.
   const verifier = new StorageBindingVerifier(
@@ -152,6 +150,7 @@ export function createPermitPairing(
   );
   return {
     pairing: new DatabasePermitPairing(db, verifier),
-    close: () => db.destroy(),
+    close: () => pool.end(),
+    databaseDiagnostics: () => pool.diagnostics(),
   };
 }
