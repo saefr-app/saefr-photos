@@ -104,3 +104,24 @@ export interface StorageProvider {
   compensateOwned(published: PublishedObject): Promise<RemovalOutcome>;
   releaseOwned(published: PublishedObject): Promise<PersistenceOutcome>;
 }
+
+/** Async fresh observation plus a synchronous final local dispatch fence.
+ * Neither is an atomic fence across PostgreSQL, control files and syscalls. */
+export interface ProviderExecutionGuard {
+  observe(): Promise<boolean>;
+  canDispatch(): boolean;
+}
+export interface GuardedDeletionProvider {
+  readonly capabilities: StorageCapabilities;
+  verifyBinding(): Promise<StorageBinding>;
+  removeExactGuarded(
+    target: LogicalStorageTarget,
+    expected: ExpectedStorageBinding,
+    guard: ProviderExecutionGuard,
+  ): Promise<RemovalOutcome>;
+  confirmDirectoryPersistenceGuarded(
+    role: StorageRole,
+    expected: ExpectedStorageBinding,
+    guard: ProviderExecutionGuard,
+  ): Promise<PersistenceOutcome>;
+}
