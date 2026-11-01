@@ -16,7 +16,8 @@ describe('B.4.1 production dormancy', () => {
         else if (
           entry.name.endsWith('.ts') &&
           !entry.name.endsWith('.spec.ts') &&
-          entry.name !== filename
+          entry.name !== filename &&
+          entry.name !== 'controlled-deletion.executor.ts'
         ) {
           expect(await readFile(path, 'utf8'), path).not.toMatch(
             /dormant-deletion-admission|DormantDeletionAdmissionRepository/,
@@ -25,5 +26,21 @@ describe('B.4.1 production dormancy', () => {
       }
     }
     await check(root);
+    async function disconnected(directory: string): Promise<void> {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) await disconnected(path);
+        else if (
+          entry.name.endsWith('.ts') &&
+          !entry.name.endsWith('.spec.ts') &&
+          entry.name !== 'controlled-deletion.executor.ts'
+        ) {
+          expect(await readFile(path, 'utf8'), path).not.toMatch(
+            /controlled-deletion|ControlledDeletionExecutor/,
+          );
+        }
+      }
+    }
+    await disconnected(root);
   });
 });

@@ -20,6 +20,7 @@ import type {
   PublishedObject,
   RemovalOutcome,
   StorageProvider,
+  ProviderExecutionGuard,
 } from './storage-provider.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -350,7 +351,25 @@ export class LocalStorageProvider implements StorageProvider {
     target: LogicalStorageTarget,
     expected?: ExpectedStorageBinding,
   ): Promise<RemovalOutcome> {
+    return this.removeExactInternal(target, expected);
+  }
+
+  async removeExactGuarded(
+    target: LogicalStorageTarget,
+    expected: ExpectedStorageBinding,
+    guard: ProviderExecutionGuard,
+  ): Promise<RemovalOutcome> {
+    if (!guard || !expected) return { status: 'unavailable', durable: false };
+    return this.removeExactInternal(target, expected, guard);
+  }
+
+  private async removeExactInternal(
+    target: LogicalStorageTarget,
+    expected?: ExpectedStorageBinding,
+    guard?: ProviderExecutionGuard,
+  ): Promise<RemovalOutcome> {
     let removalAttempted = false;
+    let guardedPersistenceAttempted = false;
     let directory: FileHandle | undefined;
     try {
       const name = this.name(target);
@@ -365,22 +384,38 @@ export class LocalStorageProvider implements StorageProvider {
         if (!missing(error)) throw error;
         // A prior attempt may have unlinked the target but lost its directory
         // sync acknowledgment. Repeat-safe absence still requires fsync.
+        if (guard && (!(await guard.observe()) || !guard.canDispatch()))
+          return { status: 'unavailable', durable: false };
+        // Absence still submits persistence I/O. Once dispatched, a missing
+        // acknowledgement or failed post-sync verification is uncertain for
+        // automatic execution, even though this attempt never issued unlink.
+        // Legacy manual classification remains unchanged.
+        guardedPersistenceAttempted = guard !== undefined;
         await this.syncDirectory(target.role, directory);
         await this.recheck(target.role, directory, expected);
         return { status: 'absent', durable: true };
       }
       try {
+        // Pinning, binding observation and lstat have all completed. No further
+        // await between the final local fence and entering unlinkPath().
+        if (guard && (!(await guard.observe()) || !guard.canDispatch()))
+          return { status: 'unavailable', durable: false };
         removalAttempted = true;
         await this.unlinkPath(path);
       } catch (error) {
         if (!missing(error)) return { status: 'uncertain', durable: false };
       }
+      if (guard && (!(await guard.observe()) || !guard.canDispatch()))
+        return { status: 'uncertain', durable: false };
       await this.syncDirectory(target.role, directory);
       await this.recheck(target.role, directory, expected);
       return { status: 'removed', durable: true };
     } catch {
       return {
-        status: removalAttempted ? 'uncertain' : 'unavailable',
+        status:
+          removalAttempted || guardedPersistenceAttempted
+            ? 'uncertain'
+            : 'unavailable',
         durable: false,
       };
     } finally {
@@ -392,9 +427,28 @@ export class LocalStorageProvider implements StorageProvider {
     role: StorageRole,
     expected?: ExpectedStorageBinding,
   ): Promise<PersistenceOutcome> {
+    return this.persistenceInternal(role, expected);
+  }
+
+  async confirmDirectoryPersistenceGuarded(
+    role: StorageRole,
+    expected: ExpectedStorageBinding,
+    guard: ProviderExecutionGuard,
+  ): Promise<PersistenceOutcome> {
+    if (!guard || !expected) return { status: 'unavailable' };
+    return this.persistenceInternal(role, expected, guard);
+  }
+
+  private async persistenceInternal(
+    role: StorageRole,
+    expected?: ExpectedStorageBinding,
+    guard?: ProviderExecutionGuard,
+  ): Promise<PersistenceOutcome> {
     try {
       const directory = await this.pin(role, expected);
       try {
+        if (guard && (!(await guard.observe()) || !guard.canDispatch()))
+          return { status: 'unavailable' };
         await this.syncDirectory(role, directory);
         await this.recheck(role, directory, expected);
       } finally {
