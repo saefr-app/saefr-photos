@@ -23,14 +23,25 @@ export {
 	MAX_UPLOAD_BYTES,
 	assetOriginalPath,
 	assetThumbnailPath,
+	assetTrashThumbnailPath,
 	fetchAssetOriginal,
 	getAsset,
+	getAssetWithEtag,
+	getDeletion,
 	isAcceptedUploadMimeType,
+	lifecycleEtag,
 	listAssets,
+	listDeletions,
+	listTrash,
+	parseLifecycleEtag,
+	permanentlyDeleteAsset,
+	restoreAsset,
+	retryDeletion,
+	trashAsset,
 	uploadAsset
 } from './assets';
 export type { ListAssetsOptions } from './assets';
-export { request, requestBlob, requestForm } from './transport';
+export { request, requestBlob, requestDetailed, requestForm } from './transport';
 export type { FormRequestOptions, RequestOptions } from './transport';
 export {
 	createUser,
@@ -50,10 +61,19 @@ export type {
 	AssetPage,
 	AssetPageItem,
 	AuthenticatedUser,
+	DeletionAttempt,
+	DeletionPage,
+	DeletionReceipt,
+	DetailedResponse,
+	LifecycleMutationResult,
+	LifecycleTransition,
 	LoginResponse,
 	MeResponse,
+	ResponseMeta,
 	Role,
 	SessionIdentity,
 	SessionInfo,
+	TrashPage,
+	TrashPageItem,
 	UserStatus
 } from './types';

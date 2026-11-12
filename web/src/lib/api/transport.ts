@@ -4,6 +4,7 @@ import {
 	apiErrorForResponse,
 	statusMessage
 } from './errors';
+import type { DetailedResponse } from './types';
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -33,6 +34,19 @@ export async function request<T>(
 	path: string,
 	options: RequestOptions = {}
 ): Promise<T> {
+	return (await requestDetailed<T>(path, options)).data;
+}
+
+/**
+ * Same request rules as `request`, but preserves the response status, ETag and
+ * Location. Lifecycle mutations need the strong ETag the server returns so the
+ * next action (for example Undo) uses the fresh version. A 204 still resolves
+ * with `data: undefined`.
+ */
+export async function requestDetailed<T>(
+	path: string,
+	options: RequestOptions = {}
+): Promise<DetailedResponse<T>> {
 	const method = options.method ?? 'GET';
 	const headers: Record<string, string> = { ...options.headers };
 	let body: string | undefined;
@@ -64,11 +78,19 @@ export async function request<T>(
 		});
 	}
 
-	if (response.status === 204) return undefined as T;
+	const meta = {
+		status: response.status,
+		etag: response.headers.get('etag'),
+		location: response.headers.get('location')
+	};
+
+	if (response.status === 204) {
+		return { data: undefined as T, ...meta };
+	}
 	if (!response.ok) throw new ApiRequestError(apiErrorForResponse(response));
 
 	const text = await response.text();
-	return parseJson(text) as T;
+	return { data: parseJson(text) as T, ...meta };
 }
 
 /**
