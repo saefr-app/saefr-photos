@@ -24,6 +24,9 @@ let loadingMore = $state(false);
 let loadMoreError = $state<ApiError | null>(null);
 let hasLoadedPages = $state(false);
 let scrollY = $state(0);
+// A confirmed upload may land while the first page is already loading; queue
+// one more honest reload instead of silently dropping the new asset.
+let refreshQueued = false;
 // True after a tile activation until the gallery consumes the return. While
 // set, the gallery scroll listener must not overwrite the click-time snapshot
 // as navigation scrolls the outgoing page to the top.
@@ -51,6 +54,7 @@ function clearState(): void {
 	loadMoreError = null;
 	hasLoadedPages = false;
 	scrollY = 0;
+	refreshQueued = false;
 	returningFromGallery = false;
 }
 
@@ -136,6 +140,8 @@ async function reload(): Promise<void> {
 	ensureOwner();
 	if (status === 'loading') return;
 
+	refreshQueued = false;
+
 	// Invalidate any in-flight pagination so its result cannot append to the
 	// clean state we are about to request.
 	epoch += 1;
@@ -149,6 +155,23 @@ async function reload(): Promise<void> {
 	returningFromGallery = false;
 
 	await loadFirstPage();
+}
+
+/**
+ * A confirmed `201` upload. Reload the owner's first page; if another upload
+ * lands while that request is running, run one more reload instead of dropping
+ * the second confirmed asset from the visible gallery.
+ */
+async function refreshAfterUpload(): Promise<void> {
+	ensureOwner();
+	if (status === 'loading') {
+		refreshQueued = true;
+		return;
+	}
+	await reload();
+	if (!refreshQueued) return;
+	refreshQueued = false;
+	await refreshAfterUpload();
 }
 
 /** Drops a photo that the viewer learned is no longer owner-visible. */
@@ -217,6 +240,7 @@ export const gallery = {
 	loadFirstPage,
 	loadMore,
 	reload,
+	refreshAfterUpload,
 	removeItem,
 	recordScroll,
 	markOpenedFromGallery,

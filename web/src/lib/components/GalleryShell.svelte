@@ -8,12 +8,13 @@
 		Settings,
 		Trash2,
 		Upload,
-		UserRound,
-		X
+		UserRound
 	} from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 	import { session } from '#lib/session';
+	import { upload } from '#lib/upload/upload.svelte';
 	import MobileNav from './MobileNav.svelte';
+	import UploadPanel from './upload/UploadPanel.svelte';
 	import WarmTooltip from './svelte-bits/WarmTooltip.svelte';
 
 	type ShellProps = {
@@ -23,15 +24,36 @@
 	};
 
 	let { title = 'Photos', active = 'photos', children }: ShellProps = $props();
-	let uploadOpen = $state(false);
 	let accountOpen = $state(false);
 	let accountButton = $state<HTMLButtonElement | null>(null);
 	let accountPanel = $state<HTMLDivElement | null>(null);
+	let fileInput = $state<HTMLInputElement | null>(null);
 	let signingOut = $state(false);
 	let signOutError = $state('');
 
 	const user = $derived(session.user);
 	const roleLabel = $derived(user?.role === 'admin' ? 'Administrator' : 'User');
+	const assetsAvailable = $derived.by(() => {
+		const state = session.state;
+		return state.status !== 'authenticated' || state.assetsAvailable;
+	});
+
+	$effect(() => {
+		// Drop any upload rows and ignore in-flight results if the owner changes.
+		upload.ensureOwner(session.user?.id ?? null);
+	});
+
+	function openPicker() {
+		if (!assetsAvailable) return;
+		fileInput?.click();
+	}
+
+	function onFilesPicked(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		if (input.files && input.files.length > 0) upload.addFiles(input.files);
+		// Allow selecting the same file again after an explicit failure.
+		input.value = '';
+	}
 
 	function closeAccount(restoreFocus = false) {
 		accountOpen = false;
@@ -141,19 +163,28 @@
 		<div class="mobile-heading">
 			<div><p class="eyebrow">Library</p><h1>{title}</h1></div>
 			{#if active === 'photos'}
-				<button class="text-action" onclick={() => (uploadOpen = true)}><Upload size={17} /> Upload</button>
+				<button
+					type="button"
+					class="text-action"
+					disabled={!assetsAvailable}
+					title={assetsAvailable ? undefined : 'Uploads are unavailable for this account'}
+					onclick={openPicker}
+				>
+					<Upload size={17} aria-hidden="true" /> Upload
+				</button>
 			{/if}
 		</div>
 		{@render children()}
 	</main>
-	{#if uploadOpen}
-		<div class="upload-panel" role="dialog" aria-label="Upload photos">
-			<div class="upload-panel-head"><strong>Upload photos</strong><button class="icon-action" aria-label="Close upload" onclick={() => (uploadOpen = false)}><X size={18} /></button></div>
-			<p>Choose JPEG, PNG or WebP files up to 20 MiB.</p>
-			<label class="file-picker"><Upload size={18} /> Choose files<input type="file" accept="image/jpeg,image/png,image/webp" multiple /></label>
-			<div class="upload-state"><span>Ready to upload</span><span>0 files</span></div>
-		</div>
-	{/if}
+	<input
+		bind:this={fileInput}
+		type="file"
+		accept="image/jpeg,image/png,image/webp"
+		multiple
+		hidden
+		onchange={onFilesPicked}
+	/>
+	<UploadPanel />
 	<MobileNav {active} />
 </div>
 
@@ -184,20 +215,14 @@
 	.eyebrow { color:var(--color-text-secondary); font-size:12px; margin:0 0 4px; }
 	h1 { font-size:24px; line-height:1.15; margin:0; letter-spacing:-.03em; }
 	.text-action { display:flex; align-items:center; gap:8px; min-height:44px; color:var(--color-text-primary); background:none; border:0; cursor:pointer; }
+	.text-action:disabled { color:var(--color-text-disabled); cursor:default; }
+	.text-action:disabled:hover { color:var(--color-text-disabled); }
 	.mobile-title { display:none; }
-	.upload-panel { position:fixed; z-index:35; right:24px; bottom:24px; width:min(340px, calc(100vw - 32px)); padding:16px; border-radius:14px; background:var(--color-elevated); box-shadow:0 12px 30px #0008; animation:panel-in var(--duration-panel) var(--ease-out) both; }
-	.upload-panel-head, .upload-state { display:flex; align-items:center; justify-content:space-between; }
-	.upload-panel p { color:var(--color-text-secondary); font-size:13px; line-height:1.45; }
-	.file-picker { display:flex; gap:8px; align-items:center; justify-content:center; min-height:44px; color:var(--color-text-primary); cursor:pointer; }
-	.file-picker input { position:absolute; width:1px; height:1px; opacity:0; }
-	.upload-state { margin-top:12px; color:var(--color-text-secondary); font-size:12px; }
-	@keyframes panel-in { from { opacity:0; transform:translateY(8px) scale(.98); } to { opacity:1; transform:translateY(0) scale(1); } }
 	@media (max-width: 899px) { .sidebar { width:68px; padding:28px 12px; } .sidebar nav a { justify-content:center; padding:0; } .sidebar nav a :global(svg) { flex-basis:20px; } .sidebar nav span { display:none; } main { margin-left:68px; } }
 	@media (max-width: 599px) {
 		.topbar { height:60px; padding:0 12px; } .wordmark { font-size:18px; } .mobile-title { display:block; font-weight:500; margin:auto; }
 		.sidebar { display:none; }
 		main { margin:0; padding:18px 10px calc(88px + env(safe-area-inset-bottom)); } .mobile-heading { margin-bottom:22px; } .mobile-heading .eyebrow { display:none; }
-		.upload-panel { right:10px; bottom:calc(78px + env(safe-area-inset-bottom)); } .account { min-width:44px; }
+		.account { min-width:44px; }
 	}
-	@media (prefers-reduced-motion: reduce) { .upload-panel { animation:none; } }
 </style>
