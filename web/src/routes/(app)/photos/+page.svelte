@@ -1,55 +1,298 @@
 <script lang="ts">
-	import { RefreshCw, Upload } from '@lucide/svelte';
+	import { Image as ImageIcon, ImageOff, RefreshCw } from '@lucide/svelte';
+	import { onMount, tick } from 'svelte';
 	import GalleryShell from '#lib/components/GalleryShell.svelte';
-	import FadeContent from '#lib/components/svelte-bits/FadeContent.svelte';
-	import StatusMark from '#lib/components/svelte-bits/StatusMark.svelte';
-	import { photos } from '#lib/fixtures';
+	import PhotoTile from '#lib/components/gallery/PhotoTile.svelte';
+	import { gallery } from '#lib/gallery/gallery.svelte';
+	import { groupAssetsByMonth } from '#lib/gallery/groups';
+	import { session } from '#lib/session';
 
-	let showError = $state(false);
-	const groups = [...new Set(photos.map((photo) => photo.added))];
+	const groups = $derived(groupAssetsByMonth(gallery.items));
+	const assetsAvailable = $derived.by(() => {
+		const state = session.state;
+		return state.status !== 'authenticated' || state.assetsAvailable;
+	});
+	const canLoadMore = $derived(
+		gallery.status === 'ready' && gallery.nextCursor !== null
+	);
+
+	let sentinel = $state<HTMLDivElement | null>(null);
+	let observer: IntersectionObserver | null = null;
+
+	function nextFrame(): Promise<void> {
+		return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+	}
+
+	onMount(() => {
+		if (!assetsAvailable) return;
+
+		let disposed = false;
+
+		// The gallery reuses its owner-scoped cache when this mount is the
+		// return from the viewer; every other mount starts a fresh first page.
+		const returned = gallery.consumeReturnedFromGallery();
+		const restoring =
+			returned && gallery.belongsToCurrentUser && gallery.hasLoaded;
+		const restoreY = gallery.scrollY;
+
+		// SvelteKit may scroll the outgoing page to the top while mounting. Keep
+		// that transient position out of the remembered gallery offset.
+		let suppressScroll = restoring;
+
+		if (!restoring) void gallery.reload();
+
+		function onScroll() {
+			if (suppressScroll) return;
+			gallery.recordScroll(window.scrollY);
+		}
+		window.addEventListener('scroll', onScroll, { passive: true });
+
+		if (restoring) {
+			void (async () => {
+				await tick();
+				await nextFrame();
+				await nextFrame();
+				if (disposed) return;
+				window.scrollTo(0, restoreY);
+				await nextFrame();
+				suppressScroll = false;
+			})();
+		}
+
+		if (sentinel) {
+			observer = new IntersectionObserver(
+				(entries) => {
+					if (disposed) return;
+					if (entries.some((entry) => entry.isIntersecting))
+						void gallery.loadMore();
+				},
+				{ rootMargin: '900px 0px' }
+			);
+			observer.observe(sentinel);
+		}
+
+		return () => {
+			disposed = true;
+			window.removeEventListener('scroll', onScroll);
+			observer?.disconnect();
+			observer = null;
+		};
+	});
+
+	// An observer callback only fires when intersection changes. Re-arm it after
+	// each page so a sentinel that never left the generous margin keeps loading;
+	// a pagination error waits for the explicit Retry button instead.
+	$effect(() => {
+		if (gallery.status !== 'ready') return;
+		if (gallery.nextCursor === null) return;
+		if (gallery.loadingMore || gallery.loadMoreError !== null) return;
+		// Depend on the appended page even if the cursor text did not change.
+		void gallery.items.length;
+		if (!observer || !sentinel) return;
+		observer.unobserve(sentinel);
+		observer.observe(sentinel);
+	});
 </script>
 
+<svelte:head><title>Photos · Saefr</title></svelte:head>
+
 <GalleryShell>
-	<div class="page-actions">
-		<div><p class="hint">Date added</p><p class="date-label">October 2026</p></div>
-		<button class="text-action" onclick={() => (showError = !showError)}><Upload size={17} /> Upload</button>
-	</div>
-	{#if showError}
-		<div class="notice" role="status"><span>Some photos could not be loaded. Your local library is still available.</span><button onclick={() => (showError = false)}><RefreshCw size={15} /> Retry</button></div>
-	{/if}
-	{#each groups as group}
-		<FadeContent blur duration={420} class="photo-group">
-			<section aria-labelledby={group}>
-				<h2 id={group}>Date added · {group}</h2>
+	{#if !assetsAvailable}
+		<div class="state" role="status">
+			<ImageOff size={26} aria-hidden="true" />
+			<h2>Photos unavailable</h2>
+			<p>This account does not have access to the photo library.</p>
+		</div>
+	{:else if !gallery.hasLoaded && (gallery.status === 'idle' || gallery.status === 'loading')}
+		<div class="grid skeleton" aria-busy="true" role="status">
+			<span class="sr-only">Loading photos…</span>
+			{#each Array(15) as _, index (index)}
+				<div class="skeleton-tile" aria-hidden="true"></div>
+			{/each}
+		</div>
+	{:else if gallery.status === 'error'}
+		<div class="state" role="alert">
+			<ImageOff size={26} aria-hidden="true" />
+			<h2>Photos could not be loaded</h2>
+			<p>{gallery.error?.message ?? 'Try again in a moment.'}</p>
+			<button
+				type="button"
+				class="text-action"
+				onclick={() => void gallery.reload()}
+			>
+				<RefreshCw size={15} aria-hidden="true" />
+				<span>Retry</span>
+			</button>
+		</div>
+	{:else if gallery.status === 'ready' && gallery.items.length === 0}
+		<div class="state">
+			<ImageIcon size={26} aria-hidden="true" />
+			<h2>No photos yet</h2>
+			<p>Photos you upload will appear here.</p>
+		</div>
+	{:else}
+		{#each groups as group (group.key)}
+			<section class="photo-group" aria-labelledby={`group-${group.key}`}>
+				<h2 id={`group-${group.key}`}>{group.label}</h2>
 				<div class="grid">
-					{#each photos.filter((photo) => photo.added === group) as photo}
-						<a class="tile" href={`/photos/${photo.id}`} aria-label={`Open ${photo.filename}`}>
-							<img src={photo.color} alt="" loading="lazy" />
-						</a>
+					{#each group.items as item (item.id)}
+						<PhotoTile {item} />
 					{/each}
 				</div>
 			</section>
-		</FadeContent>
-	{/each}
-	<div class="upload-summary" aria-live="polite">
-		<StatusMark status="pending" label="Ready to upload" size={16} />
-		<span>Choose files above</span>
-	</div>
+		{/each}
+	{/if}
+
+	<div bind:this={sentinel} class="sentinel" aria-hidden="true"></div>
+
+	{#if canLoadMore}
+		<div class="pagination">
+			{#if gallery.loadingMore}
+				<p role="status">Loading more photos…</p>
+			{:else if gallery.loadMoreError}
+				<div class="notice" role="alert">
+					<span>{gallery.loadMoreError.message}</span>
+					<button
+						type="button"
+						class="text-action"
+						onclick={() => void gallery.loadMore()}
+					>
+						<RefreshCw size={15} aria-hidden="true" />
+						<span>Retry</span>
+					</button>
+				</div>
+			{:else}
+				<button
+					type="button"
+					class="text-action"
+					onclick={() => void gallery.loadMore()}
+				>
+					Load more
+				</button>
+			{/if}
+		</div>
+	{/if}
 </GalleryShell>
 
 <style>
-	.page-actions { display:flex; align-items:center; justify-content:space-between; margin: -4px 0 24px; }
-	.hint { color:var(--color-text-secondary); font-size:12px; margin:0 0 3px; } .date-label { margin:0; color:var(--color-text-primary); font-size:14px; }
-	.text-action, .notice button { display:flex; align-items:center; gap:8px; border:0; background:none; color:var(--color-text-primary); min-height:44px; cursor:pointer; }
-	.notice { display:flex; justify-content:space-between; gap:16px; align-items:center; padding:12px 0; margin-bottom:22px; color:var(--color-danger); font-size:13px; }
-	.notice button { color:var(--color-text-primary); white-space:nowrap; }
-	:global(.photo-group) { margin-bottom:30px; } h2 { color:var(--color-text-secondary); font-size:13px; font-weight:500; margin:0 0 10px; }
-	.grid { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:4px; }
-	.tile { display:block; aspect-ratio:1; overflow:hidden; background:var(--color-input); border-radius:3px; }
-	.tile img { display:block; width:100%; height:100%; object-fit:cover; transition:filter .14s ease, transform .2s ease; }
-	.tile:hover img, .tile:focus-visible img { filter:brightness(1.12); transform:scale(1.015); }
-	.upload-summary { position:fixed; right:24px; bottom:24px; display:flex; align-items:center; gap:8px; padding:12px 14px; border-radius:12px; background:var(--color-elevated); color:var(--color-text-secondary); font-size:12px; }
-	@media (max-width:899px) { .grid { grid-template-columns:repeat(4, minmax(0, 1fr)); } }
-	@media (max-width:599px) { .grid { grid-template-columns:repeat(3, minmax(0, 1fr)); } .upload-summary { right:10px; bottom:78px; } .notice { align-items:flex-start; } }
-	@media (max-width:360px) { .grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+	.grid {
+		display: grid;
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		gap: 4px;
+	}
+
+	.photo-group {
+		margin: 0 0 30px;
+	}
+
+	h2 {
+		margin: 0 0 10px;
+		color: var(--color-text-secondary);
+		font-size: 13px;
+		font-weight: 500;
+	}
+
+	.skeleton-tile {
+		aspect-ratio: 1;
+		border-radius: 3px;
+		background: var(--color-input);
+	}
+
+	.state {
+		display: grid;
+		justify-items: center;
+		gap: 10px;
+		padding: 84px 20px;
+		color: var(--color-text-secondary);
+		text-align: center;
+	}
+
+	.state h2 {
+		margin: 0;
+		color: var(--color-text-primary);
+		font-size: 17px;
+		font-weight: 600;
+	}
+
+	.state p {
+		max-width: 38ch;
+		margin: 0;
+		font-size: 13px;
+		line-height: 1.5;
+	}
+
+	.sentinel {
+		height: 1px;
+	}
+
+	.pagination {
+		display: flex;
+		justify-content: center;
+		padding: 8px 0 4px;
+	}
+
+	.pagination p {
+		margin: 0;
+		color: var(--color-text-secondary);
+		font-size: 13px;
+	}
+
+	.notice {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		width: 100%;
+		color: var(--color-danger);
+		font-size: 13px;
+	}
+
+	.text-action {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		min-height: 44px;
+		padding: 0 4px;
+		border: 0;
+		color: var(--color-text-primary);
+		background: none;
+		cursor: pointer;
+	}
+
+	.text-action:hover {
+		opacity: 0.8;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
+	@media (max-width: 899px) {
+		.grid {
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+		}
+	}
+
+	@media (max-width: 599px) {
+		.grid {
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+		}
+
+		.state {
+			padding: 64px 16px;
+		}
+	}
+
+	@media (max-width: 360px) {
+		.grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
 </style>
