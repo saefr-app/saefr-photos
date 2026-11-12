@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ArrowLeft, ChevronRight, RefreshCw } from '@lucide/svelte';
-	import { pendingDeletions } from '../../../lib/fixtures';
-	import AnimatedList from '../../../lib/components/svelte-bits/AnimatedList.svelte';
+	import { pendingDeletions } from '#lib/fixtures';
+	import AnimatedList from '#lib/components/svelte-bits/AnimatedList.svelte';
 
 	let selectedId = $state(pendingDeletions[0]?.id ?? '');
 	const pendingNames = pendingDeletions.map((receipt) => receipt.filename);

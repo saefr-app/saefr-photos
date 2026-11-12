@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { ArrowRight, Eye, EyeOff, KeyRound, LoaderCircle } from '@lucide/svelte';
-	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import type { ApiError } from '#lib/api';
+	import {
+		PASSWORD_MAX_LENGTH,
+		PASSWORD_MIN_LENGTH,
+		validateNewPassword
+	} from '#lib/auth/policy';
+	import { session } from '#lib/session';
 
 	type FormState = 'idle' | 'invalid' | 'loading' | 'failure' | 'success';
 	type Field = 'current' | 'next' | 'confirm';
@@ -19,12 +24,21 @@
 		{ field: 'confirm', label: 'Confirm new password', inputName: 'confirm' }
 	];
 
-	const forced = $derived(page.url.searchParams.get('forced') === '1');
+	const forced = $derived(session.user?.passwordChangeRequired === true);
 	const errors = $derived(formState === 'invalid' ? {
 		current: currentPassword ? '' : 'Enter your current password.',
-		next: nextPassword.length >= 12 ? '' : 'Use at least 12 characters.',
-		confirm: confirmPassword === nextPassword && confirmPassword ? '' : 'Passwords do not match.'
+		next: validateNewPassword(nextPassword) ?? '',
+		confirm: confirmPassword && confirmPassword === nextPassword ? '' : 'Passwords do not match.'
 	} : { current: '', next: '', confirm: '' });
+
+	function failureFor(error: ApiError): string {
+		if (error.status === 400) return 'Choose a different, stronger password.';
+		if (error.status === 401)
+			return 'Your current password is not correct, or your session has ended. Sign in again.';
+		if (error.status === 403)
+			return 'You do not have permission to change this password from this address.';
+		return error.message;
+	}
 
 	function toggle(field: Field) {
 		show[field] = !show[field];
@@ -45,22 +59,27 @@
 	async function changePassword() {
 		formState = 'idle';
 		message = '';
-		if (!currentPassword || nextPassword.length < 12 || !confirmPassword || confirmPassword !== nextPassword) {
+		if (
+			!currentPassword ||
+			validateNewPassword(nextPassword) !== null ||
+			!confirmPassword ||
+			confirmPassword !== nextPassword
+		) {
 			formState = 'invalid';
 			message = 'Check the highlighted fields and try again.';
 			return;
 		}
 		formState = 'loading';
-		await new Promise((resolve) => setTimeout(resolve, 700));
-		if (currentPassword === 'wrong') {
+		const result = await session.changePassword(currentPassword, nextPassword);
+		if (!result.ok) {
 			formState = 'failure';
-			message = 'The current password is not correct.';
+			message = failureFor(result.error);
 			return;
 		}
+		// The store clears the session; SessionGate then sends this browser to
+		// /login?changed=1, which explains why another sign-in is needed.
 		formState = 'success';
 		message = 'Password changed. Your session has been cleared; sign in again to continue.';
-		await new Promise((resolve) => setTimeout(resolve, 800));
-		await goto('/login');
 	}
 </script>
 
@@ -98,7 +117,7 @@
 				</div>
 			{/each}
 
-			<p class="requirements"><KeyRound size={14} aria-hidden="true" /> Use 12 or more characters. A successful change signs you out on this device.</p>
+			<p class="requirements"><KeyRound size={14} aria-hidden="true" /> Use {PASSWORD_MIN_LENGTH}–{PASSWORD_MAX_LENGTH} characters. A successful change signs you out on this device.</p>
 			{#if message}<p class:success={formState === 'success'} class="form-message" role={formState === 'failure' ? 'alert' : 'status'} aria-live="polite">{message}</p>{/if}
 			<button class="submit-button" type="submit" disabled={formState === 'loading' || formState === 'success'}>
 				{#if formState === 'loading'}<LoaderCircle class="spin" size={18} aria-hidden="true" /><span>Saving…</span>{:else}<span>Change password</span><ArrowRight size={18} aria-hidden="true" />{/if}

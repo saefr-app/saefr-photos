@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Check, RotateCcw, Trash2 } from '@lucide/svelte';
-	import GalleryShell from '../../lib/components/GalleryShell.svelte';
-	import { trashedPhotos } from '../../lib/fixtures';
-	import SwipeToast from '../../lib/components/svelte-bits/SwipeToast.svelte';
+	import GalleryShell from '#lib/components/GalleryShell.svelte';
+	import { trashedPhotos } from '#lib/fixtures';
+	import SwipeToast from '#lib/components/svelte-bits/SwipeToast.svelte';
 
 	let confirmId = $state<string | null>(null);
 	let restored = $state<string[]>([]);

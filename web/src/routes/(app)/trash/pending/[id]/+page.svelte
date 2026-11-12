@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ArrowLeft, CircleAlert, RefreshCw } from '@lucide/svelte';
 	import { page } from '$app/state';
-	import { pendingDeletions } from '../../../../lib/fixtures';
+	import { pendingDeletions } from '#lib/fixtures';
 	const receipt = pendingDeletions.find((item) => item.id === page.params.id) ?? pendingDeletions[0];
 	let retried = $state(false);
 </script>

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ArrowLeft, ArrowRight, Download, Info, MoreHorizontal, X } from '@lucide/svelte';
 	import { page } from '$app/state';
-	import { photos } from '../../../lib/fixtures';
+	import { photos } from '#lib/fixtures';
 
 	const photo = photos.find((item) => item.id === page.params.id) ?? photos[0];
 	let infoOpen = $state(false);

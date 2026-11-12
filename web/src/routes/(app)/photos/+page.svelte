@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { RefreshCw, Upload } from '@lucide/svelte';
-	import GalleryShell from '../../lib/components/GalleryShell.svelte';
-	import FadeContent from '../../lib/components/svelte-bits/FadeContent.svelte';
-	import StatusMark from '../../lib/components/svelte-bits/StatusMark.svelte';
-	import { photos } from '../../lib/fixtures';
+	import GalleryShell from '#lib/components/GalleryShell.svelte';
+	import FadeContent from '#lib/components/svelte-bits/FadeContent.svelte';
+	import StatusMark from '#lib/components/svelte-bits/StatusMark.svelte';
+	import { photos } from '#lib/fixtures';
 
 	let showError = $state(false);
 	const groups = [...new Set(photos.map((photo) => photo.added))];

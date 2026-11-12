@@ -18,5 +18,15 @@ export default defineConfig({
 			// See https://svelte.dev/docs/kit/adapters for more information about adapters.
 			adapter: adapter()
 		})
-	]
+	],
+	server: {
+		port: 5180,
+		strictPort: true,
+		proxy: {
+			'/api': {
+				target: 'http://127.0.0.1:3100',
+				changeOrigin: false
+			}
+		}
+	}
 });

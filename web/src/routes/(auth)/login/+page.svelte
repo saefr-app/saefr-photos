@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { ArrowRight, Eye, EyeOff, KeyRound, LoaderCircle } from '@lucide/svelte';
-	import { goto } from '$app/navigation';
+	import { ArrowRight, Eye, EyeOff, LoaderCircle } from '@lucide/svelte';
+	import { page } from '$app/state';
+	import type { ApiError } from '#lib/api';
+	import { session } from '#lib/session';
 
 	type FormState = 'idle' | 'invalid' | 'loading' | 'failure' | 'limited' | 'unavailable' | 'success';
 
@@ -10,10 +12,30 @@
 	let formState = $state<FormState>('idle');
 	let message = $state('');
 
+	const changed = $derived(page.url.searchParams.get('changed') === '1');
+
 	const fieldError = $derived(formState === 'invalid' ? {
 		username: username.trim() ? '' : 'Enter your username.',
 		password: password ? '' : 'Enter your password.'
 	} : { username: '', password: '' });
+
+	function failureFor(error: ApiError): { state: FormState; message: string } {
+		if (error.status === 401)
+			return {
+				state: 'failure',
+				message: 'That username and password combination was not recognised.'
+			};
+		if (error.status === 403)
+			return {
+				state: 'failure',
+				message: 'Sign-in could not be completed from this address.'
+			};
+		if (error.status === 429)
+			return { state: 'limited', message: error.message };
+		if (error.status === 503 || error.status === 0)
+			return { state: 'unavailable', message: error.message };
+		return { state: 'failure', message: error.message };
+	}
 
 	async function signIn() {
 		formState = 'idle';
@@ -26,34 +48,20 @@
 		}
 
 		formState = 'loading';
-		await new Promise((resolve) => setTimeout(resolve, 650));
-
-		// Local fixtures keep this screen demonstrable without contacting the API.
-		if (username.trim().toLowerCase() === 'offline') {
-			formState = 'unavailable';
-			message = 'Saefr is temporarily unavailable. Try again in a moment.';
-			return;
-		}
-		if (username.trim().toLowerCase() === 'limited') {
-			formState = 'limited';
-			message = 'Too many sign-in attempts. Please wait a minute before trying again.';
-			return;
-		}
-		if (password === 'wrong') {
-			formState = 'failure';
-			message = 'That username and password combination was not recognised.';
-			return;
-		}
-		if (username.trim().toLowerCase() === 'forced-change') {
-			formState = 'success';
-			message = 'Sign-in successful. You need to choose a new password before continuing.';
-			await new Promise((resolve) => setTimeout(resolve, 500));
-			await goto('/change-password?forced=1');
+		const result = await session.signIn(username.trim(), password);
+		if (!result.ok) {
+			const failure = failureFor(result.error);
+			formState = failure.state;
+			message = failure.message;
 			return;
 		}
 
+		// SessionGate owns the post-login destination (`next` or `/photos`) and
+		// the forced-change route, so there is only one redirect authority.
 		formState = 'success';
-		message = 'Sign-in successful. Opening your library…';
+		message = result.user.passwordChangeRequired
+			? 'Sign-in successful. Choose a new password to continue.'
+			: 'Sign-in successful. Opening your library…';
 	}
 </script>
 
@@ -76,6 +84,10 @@
 		</header>
 
 		<form class="auth-form" onsubmit={(event) => { event.preventDefault(); signIn(); }} novalidate>
+			{#if changed}
+				<p class="form-message success" role="status">Password changed. Sign in again.</p>
+			{/if}
+
 			<div class="field">
 				<label for="username">Username</label>
 				<input
@@ -133,8 +145,6 @@
 				{/if}
 			</button>
 		</form>
-
-		<p class="fixture-hint"><KeyRound size={14} aria-hidden="true" /> UI preview only · use <strong>forced-change</strong> to preview the required password change.</p>
 	</section>
 </main>
 
@@ -167,8 +177,6 @@
 	.submit-button:hover:not(:disabled) { opacity: .82; }
 	.submit-button:disabled { color: var(--color-text-disabled); background: var(--color-input); cursor: wait; }
 	:global(.spin) { animation: spin 900ms linear infinite; }
-	.fixture-hint { display: flex; align-items: flex-start; gap: 6px; margin: 28px 0 0; color: var(--color-text-disabled); font-size: 11px; line-height: 1.5; }
-	.fixture-hint strong { color: var(--color-text-secondary); font-weight: 500; }
 	@keyframes spin { to { transform: rotate(360deg); } }
 	@media (max-width: 480px) { .auth-page { padding: 24px 16px; } .intro { margin-top: 44px; } }
 </style>
