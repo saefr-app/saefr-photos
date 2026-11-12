@@ -21,12 +21,23 @@ export {
 export {
 	assetOriginalPath,
 	assetThumbnailPath,
+	assetTrashThumbnailPath,
 	fetchAssetOriginal,
 	getAsset,
-	listAssets
+	getAssetWithEtag,
+	getDeletion,
+	lifecycleEtag,
+	listAssets,
+	listDeletions,
+	listTrash,
+	parseLifecycleEtag,
+	permanentlyDeleteAsset,
+	restoreAsset,
+	retryDeletion,
+	trashAsset
 } from './assets';
 export type { ListAssetsOptions } from './assets';
-export { request, requestBlob } from './transport';
+export { request, requestBlob, requestDetailed } from './transport';
 export type { RequestOptions } from './transport';
 export type {
 	ApiError,
@@ -37,9 +48,18 @@ export type {
 	AssetPage,
 	AssetPageItem,
 	AuthenticatedUser,
+	DeletionAttempt,
+	DeletionPage,
+	DeletionReceipt,
+	DetailedResponse,
+	LifecycleMutationResult,
+	LifecycleTransition,
 	LoginResponse,
 	MeResponse,
+	ResponseMeta,
 	Role,
 	SessionIdentity,
-	SessionInfo
+	SessionInfo,
+	TrashPage,
+	TrashPageItem
 } from './types';

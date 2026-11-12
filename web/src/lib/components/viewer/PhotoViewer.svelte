@@ -3,26 +3,33 @@
 		ArrowLeft,
 		ArrowRight,
 		Download,
+		Ellipsis,
 		ImageOff,
 		Info,
 		Loader,
 		Minus,
 		Plus,
 		RefreshCw,
+		Trash2,
 		X
 	} from '@lucide/svelte';
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import {
 		ApiRequestError,
 		assetOriginalPath,
 		assetThumbnailPath,
 		fetchAssetOriginal,
-		getAsset,
+		getAssetWithEtag,
+		lifecycleEtag,
+		parseLifecycleEtag,
+		restoreAsset,
+		trashAsset,
 		type ApiError,
 		type Asset,
 		type AssetPageItem
 	} from '#lib/api';
+	import { toast } from '#lib/feedback/toast.svelte';
 	import { gallery } from '#lib/gallery/gallery.svelte';
 	import { neighborAssets } from '#lib/gallery/navigation';
 	import { ZOOM_MAX, ZOOM_MIN, zoomIn, zoomOut } from '#lib/gallery/zoom';
@@ -39,6 +46,9 @@
 	const cached = gallery.items.find((item) => item.id === id) ?? null;
 
 	let asset = $state<Asset | null>(cached);
+	let lifecycleVersion = $state<string | null>(
+		cached?.lifecycle_version ?? null
+	);
 	let loadStatus = $state<LoadStatus>(cached ? 'ready' : 'loading');
 	let loadError = $state<ApiError | null>(null);
 	let infoOpen = $state(false);
@@ -49,6 +59,13 @@
 	let downloadError = $state('');
 	let originalFailed = $state(false);
 	let originalNonce = $state(0);
+
+	let menuOpen = $state(false);
+	let menuButton = $state<HTMLButtonElement | null>(null);
+	let menuPanel = $state<HTMLDivElement | null>(null);
+	let menuItem = $state<HTMLButtonElement | null>(null);
+	let trashBusy = $state(false);
+	let actionError = $state('');
 
 	let requestEpoch = 0;
 	const objectUrls = new Set<string>();
@@ -78,11 +95,16 @@
 		const epoch = ++requestEpoch;
 		if (!asset) loadStatus = 'loading';
 		loadError = null;
+		actionError = '';
 
 		try {
-			const fresh = await getAsset(id);
+			const fresh = await getAssetWithEtag(id);
 			if (epoch !== requestEpoch) return;
-			asset = fresh;
+			asset = fresh.asset;
+			// The body has no lifecycle version. The strong ETag on this response
+			// is the honest current version for a direct-link viewer.
+			const fromHeader = parseLifecycleEtag(fresh.etag);
+			if (fromHeader !== null) lifecycleVersion = fromHeader;
 			loadStatus = 'ready';
 		} catch (caught) {
 			if (epoch !== requestEpoch) return;
@@ -136,7 +158,7 @@
 	}
 
 	function goTo(target: AssetPageItem | null): void {
-		if (!target || infoOpen) return;
+		if (!target || infoOpen || menuOpen) return;
 		// SvelteKit 3 replaced `noScroll`/`keepFocus` with `reset: false` and
 		// `replaceState` with `replace`; together they keep the viewer URL as one
 		// replaced history entry, without scrolling or dropping focus.
@@ -161,6 +183,157 @@
 		else openInfo();
 	}
 
+	function closeMenu(restoreFocus = false): void {
+		menuOpen = false;
+		if (restoreFocus) menuButton?.focus({ preventScroll: true });
+	}
+
+	async function toggleMenu(): Promise<void> {
+		if (trashBusy) return;
+		actionError = '';
+		menuOpen = !menuOpen;
+		if (menuOpen) {
+			await tick();
+			menuItem?.focus({ preventScroll: true });
+		}
+	}
+
+	function handleDocumentClick(event: MouseEvent): void {
+		if (!menuOpen) return;
+		const target = event.target;
+		if (!(target instanceof Node)) return;
+		if (menuButton?.contains(target) || menuPanel?.contains(target)) return;
+		closeMenu();
+	}
+
+	function handleMenuKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopPropagation();
+			closeMenu(true);
+			return;
+		}
+		if (event.key === 'Tab') {
+			// Let focus leave naturally; the next click re-opens the menu.
+			closeMenu();
+			return;
+		}
+		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+			event.preventDefault();
+			menuItem?.focus({ preventScroll: true });
+		}
+	}
+
+	async function moveToTrash(): Promise<void> {
+		if (!asset || trashBusy) return;
+		closeMenu();
+		actionError = '';
+
+		if (!lifecycleVersion) {
+			await loadMetadata();
+			if (!lifecycleVersion) {
+				actionError =
+					'Could not confirm the current photo version. Refresh and try again.';
+				return;
+			}
+		}
+
+		trashBusy = true;
+		const currentId = asset.id;
+		const currentVersion = lifecycleVersion;
+		const filename = asset.filename;
+
+		try {
+			const result = await trashAsset(
+				currentId,
+				lifecycleEtag(currentId, currentVersion)
+			);
+			const returned =
+				result.transition.lifecycle_version ||
+				parseLifecycleEtag(result.etag) ||
+				null;
+
+			// Only a confirmed 200 transition removes the photo and offers Undo.
+			gallery.removeItem(currentId);
+			toast.show({
+				title: 'Moved to Trash',
+				description: filename,
+				actionLabel: returned ? 'Undo' : '',
+				onAction: returned
+					? () => void undoTrash(currentId, returned, filename)
+					: undefined,
+				duration: 8000
+			});
+			void goto('/photos');
+		} catch (caught) {
+			const api = errorOf(caught);
+			if (api.status === 401) {
+				session.expire();
+				return;
+			}
+			if (api.status === 412) {
+				// Stale validator: refresh metadata and require a renewed action.
+				await loadMetadata();
+				actionError =
+					'This photo changed since you opened it. Review it and try again.';
+				return;
+			}
+			if (api.status === 428) {
+				actionError =
+					'Could not confirm the photo version. Refresh this photo and try again.';
+				return;
+			}
+			if (api.status === 503) {
+				actionError =
+					'Saefr is temporarily unavailable. The photo was not moved to Trash.';
+				return;
+			}
+			if (api.status === 0) {
+				// The request may or may not have reached the server. Do not claim
+				// success; refresh the authoritative metadata before retrying.
+				await loadMetadata();
+				actionError =
+					'Could not confirm whether the photo moved. Refresh this photo before trying again.';
+				return;
+			}
+			actionError = api.message;
+		} finally {
+			trashBusy = false;
+		}
+	}
+
+	async function undoTrash(
+		assetId: string,
+		version: string,
+		filename: string
+	): Promise<void> {
+		try {
+			await restoreAsset(assetId, lifecycleEtag(assetId, version));
+			toast.show({
+				title: 'Photo restored',
+				description: `${filename} is back in Photos.`
+			});
+			void gallery.reload();
+		} catch (caught) {
+			const api = errorOf(caught);
+			if (api.status === 401) {
+				session.expire();
+				return;
+			}
+			const message =
+				api.status === 412
+					? 'That photo changed since it was moved. Open Trash to restore it.'
+					: api.status === 0
+						? 'Could not confirm the restore. Check Trash before trying again.'
+						: api.message;
+			toast.show({
+				title: 'Could not restore',
+				description: message,
+				duration: 6000
+			});
+		}
+	}
+
 	function isTypingTarget(target: EventTarget | null): boolean {
 		if (!(target instanceof HTMLElement)) return false;
 		const tag = target.tagName;
@@ -179,7 +352,8 @@
 
 		if (event.key === 'Escape') {
 			event.preventDefault();
-			if (infoOpen) closeInfo();
+			if (menuOpen) closeMenu(true);
+			else if (infoOpen) closeInfo();
 			else closeViewer();
 			return;
 		}
@@ -197,7 +371,7 @@
 			return;
 		}
 
-		if (event.shiftKey || infoOpen) return;
+		if (event.shiftKey || infoOpen || menuOpen) return;
 		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
 		const target = event.key === 'ArrowLeft' ? previous : next;
 		if (!target) return;
@@ -263,7 +437,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} onclick={handleDocumentClick} />
 
 <svelte:head>
 	<title>{asset ? `${asset.filename} · Saefr` : 'Photo · Saefr'}</title>
@@ -316,6 +490,50 @@
 						<Download size={20} aria-hidden="true" />
 					{/if}
 				</button>
+				<div class="menu-wrap">
+					<button
+						bind:this={menuButton}
+						type="button"
+						class="icon-action"
+						aria-label="More photo actions"
+						aria-haspopup="menu"
+						aria-controls="photo-actions"
+						aria-expanded={menuOpen}
+						aria-busy={trashBusy}
+						disabled={trashBusy}
+						onclick={() => void toggleMenu()}
+					>
+						{#if trashBusy}
+							<span class="spin" aria-hidden="true">
+								<Loader size={20} />
+							</span>
+						{:else}
+							<Ellipsis size={20} aria-hidden="true" />
+						{/if}
+					</button>
+					{#if menuOpen}
+						<div
+							bind:this={menuPanel}
+							id="photo-actions"
+							class="menu"
+							role="menu"
+							tabindex="-1"
+							aria-label="Photo actions"
+							onkeydown={handleMenuKeydown}
+						>
+							<button
+								bind:this={menuItem}
+								type="button"
+								role="menuitem"
+								class="menu-item"
+								onclick={() => void moveToTrash()}
+							>
+								<Trash2 size={16} aria-hidden="true" />
+								<span>Move to Trash</span>
+							</button>
+						</div>
+					{/if}
+				</div>
 			</div>
 		{/if}
 	</header>
@@ -388,8 +606,21 @@
 				</button>
 			{/if}
 
-			{#if originalFailed || downloadError}
+			{#if originalFailed || downloadError || actionError}
 				<div class="notices">
+					{#if actionError}
+						<div class="notice" role="alert">
+							<span>{actionError}</span>
+							<button
+								type="button"
+								class="text-action"
+								onclick={() => void loadMetadata()}
+							>
+								<RefreshCw size={15} aria-hidden="true" />
+								<span>Refresh</span>
+							</button>
+						</div>
+					{/if}
 					{#if originalFailed}
 						<div class="notice" role="alert">
 							<span>The original photo could not be loaded.</span>
@@ -442,6 +673,9 @@
 
 	{#if downloadBusy}
 		<span class="sr-only" role="status">Preparing download…</span>
+	{/if}
+	{#if trashBusy}
+		<span class="sr-only" role="status">Moving photo to Trash…</span>
 	{/if}
 
 	{#if infoOpen && asset}
@@ -507,6 +741,44 @@
 	.toolbar-actions {
 		display: flex;
 		align-items: center;
+	}
+
+	.menu-wrap {
+		position: relative;
+	}
+
+	.menu {
+		position: absolute;
+		z-index: 8;
+		top: calc(100% + 4px);
+		right: 0;
+		min-width: 188px;
+		padding: 6px;
+		border-radius: 12px;
+		background: var(--color-elevated);
+		box-shadow: 0 16px 40px #0009;
+	}
+
+	.menu-item {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		width: 100%;
+		min-height: 44px;
+		padding: 0 10px;
+		border: 0;
+		border-radius: 8px;
+		color: var(--color-text-secondary);
+		background: none;
+		font-size: 13px;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.menu-item:hover,
+	.menu-item:focus-visible {
+		color: var(--color-text-primary);
+		background: var(--color-input);
 	}
 
 	.stage-wrap {
