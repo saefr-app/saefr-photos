@@ -31,6 +31,32 @@ export interface SessionInfo {
 	current: boolean;
 }
 
+export type UserStatus = 'active' | 'disabled';
+
+/**
+ * Public administrator-facing user record. It deliberately excludes any
+ * credential material and mirrors the fields the backend returns.
+ */
+export interface AdminUser {
+	id: string;
+	username: string;
+	role: Role;
+	status: UserStatus;
+	passwordChangeRequired: boolean;
+	createdAt: string;
+	updatedAt: string;
+}
+
+/**
+ * The backend's paged envelope for `GET /api/v1/users`. There is no total
+ * count; callers page with `limit`/`offset`.
+ */
+export interface AdminUserPage {
+	items: AdminUser[];
+	limit: number;
+	offset: number;
+}
+
 /** Formats the backend accepts and reports for stored photos. */
 export type AssetMimeType = 'image/jpeg' | 'image/png' | 'image/webp';
 

@@ -28,7 +28,16 @@ export {
 export type { ListAssetsOptions } from './assets';
 export { request, requestBlob } from './transport';
 export type { RequestOptions } from './transport';
+export {
+	createUser,
+	DEFAULT_USERS_LIMIT,
+	disableUser,
+	listUsers
+} from './users';
+export type { ListUsersOptions } from './users';
 export type {
+	AdminUser,
+	AdminUserPage,
 	ApiError,
 	ApiErrorEnvelope,
 	ApiErrorKind,
@@ -41,5 +50,6 @@ export type {
 	MeResponse,
 	Role,
 	SessionIdentity,
-	SessionInfo
+	SessionInfo,
+	UserStatus
 } from './types';
