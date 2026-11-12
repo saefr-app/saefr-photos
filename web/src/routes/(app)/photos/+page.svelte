@@ -29,13 +29,13 @@
 	}
 
 	function onDragEnter(event: DragEvent) {
-		if (!hasFilePayload(event)) return;
+		if (!assetsAvailable || !hasFilePayload(event)) return;
 		event.preventDefault();
 		dragDepth += 1;
 	}
 
 	function onDragOver(event: DragEvent) {
-		if (!hasFilePayload(event)) return;
+		if (!assetsAvailable || !hasFilePayload(event)) return;
 		event.preventDefault();
 		if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
 	}
@@ -48,6 +48,7 @@
 	function onDrop(event: DragEvent) {
 		if (hasFilePayload(event)) event.preventDefault();
 		dragDepth = 0;
+		if (!assetsAvailable) return;
 		const files = event.dataTransfer?.files;
 		if (files && files.length > 0) upload.addFiles(files);
 	}
