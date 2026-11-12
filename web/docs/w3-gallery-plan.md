@@ -7,7 +7,8 @@ honest loading, empty, error and unavailable state.
 **Sources of truth:** `sahil-handoff.md` §Phase W3, `api-integration.md` §3,
 `web-ui-spec.md` §4.2–4.3 and §6, plus the merged backend controllers at the
 current `integration` commit. No new backend routes, fields or client-side
-counts.
+counts. Implementation inventory and review notes:
+[`w2-w3-implementation-report.md`](./w2-w3-implementation-report.md).
 
 ## Backend contract used
 
