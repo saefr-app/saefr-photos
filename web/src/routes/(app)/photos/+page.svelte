@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { Image as ImageIcon, ImageOff, RefreshCw } from '@lucide/svelte';
+	import { Image as ImageIcon, ImageOff, RefreshCw, Upload } from '@lucide/svelte';
 	import { onMount, tick } from 'svelte';
 	import GalleryShell from '#lib/components/GalleryShell.svelte';
 	import PhotoTile from '#lib/components/gallery/PhotoTile.svelte';
 	import { gallery } from '#lib/gallery/gallery.svelte';
 	import { groupAssetsByMonth } from '#lib/gallery/groups';
 	import { session } from '#lib/session';
+	import { upload } from '#lib/upload/upload.svelte';
 
 	const groups = $derived(groupAssetsByMonth(gallery.items));
 	const assetsAvailable = $derived.by(() => {
@@ -18,6 +19,38 @@
 
 	let sentinel = $state<HTMLDivElement | null>(null);
 	let observer: IntersectionObserver | null = null;
+	// Nested dragenter/dragleave events are balanced with a counter so the
+	// overlay does not flicker as the pointer crosses gallery tiles.
+	let dragDepth = $state(0);
+	const draggingFiles = $derived(dragDepth > 0);
+
+	function hasFilePayload(event: DragEvent): boolean {
+		return event.dataTransfer?.types.includes('Files') ?? false;
+	}
+
+	function onDragEnter(event: DragEvent) {
+		if (!hasFilePayload(event)) return;
+		event.preventDefault();
+		dragDepth += 1;
+	}
+
+	function onDragOver(event: DragEvent) {
+		if (!hasFilePayload(event)) return;
+		event.preventDefault();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+	}
+
+	function onDragLeave(event: DragEvent) {
+		event.preventDefault();
+		dragDepth = Math.max(0, dragDepth - 1);
+	}
+
+	function onDrop(event: DragEvent) {
+		if (hasFilePayload(event)) event.preventDefault();
+		dragDepth = 0;
+		const files = event.dataTransfer?.files;
+		if (files && files.length > 0) upload.addFiles(files);
+	}
 
 	function nextFrame(): Promise<void> {
 		return new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -96,6 +129,13 @@
 
 <svelte:head><title>Photos · Saefr</title></svelte:head>
 
+<svelte:window
+	ondragenter={onDragEnter}
+	ondragover={onDragOver}
+	ondragleave={onDragLeave}
+	ondrop={onDrop}
+/>
+
 <GalleryShell>
 	{#if !assetsAvailable}
 		<div class="state" role="status">
@@ -172,6 +212,16 @@
 			{/if}
 		</div>
 	{/if}
+
+	{#if draggingFiles}
+		<div class="drop-overlay" role="status" aria-live="polite">
+			<div class="drop-copy">
+				<Upload size={28} aria-hidden="true" />
+				<p>Drop photos to upload</p>
+				<span>JPEG, PNG or WebP · up to 20 MiB</span>
+			</div>
+		</div>
+	{/if}
 </GalleryShell>
 
 <style>
@@ -223,6 +273,38 @@
 
 	.sentinel {
 		height: 1px;
+	}
+
+	.drop-overlay {
+		position: fixed;
+		z-index: 60;
+		inset: 0;
+		display: grid;
+		place-items: center;
+		background: rgba(9, 11, 11, 0.62);
+		backdrop-filter: blur(2px);
+		pointer-events: none;
+	}
+
+	.drop-copy {
+		display: grid;
+		justify-items: center;
+		gap: 8px;
+		padding: 32px;
+		color: var(--color-text-primary);
+		text-align: center;
+	}
+
+	.drop-copy p {
+		margin: 0;
+		font-size: 17px;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+	}
+
+	.drop-copy span {
+		color: var(--color-text-secondary);
+		font-size: 12px;
 	}
 
 	.pagination {

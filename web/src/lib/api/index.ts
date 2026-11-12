@@ -19,15 +19,19 @@ export {
 	revokeSession
 } from './auth';
 export {
+	ACCEPTED_UPLOAD_MIME_TYPES,
+	MAX_UPLOAD_BYTES,
 	assetOriginalPath,
 	assetThumbnailPath,
 	fetchAssetOriginal,
 	getAsset,
-	listAssets
+	isAcceptedUploadMimeType,
+	listAssets,
+	uploadAsset
 } from './assets';
 export type { ListAssetsOptions } from './assets';
-export { request, requestBlob } from './transport';
-export type { RequestOptions } from './transport';
+export { request, requestBlob, requestForm } from './transport';
+export type { FormRequestOptions, RequestOptions } from './transport';
 export {
 	createUser,
 	DEFAULT_USERS_LIMIT,
