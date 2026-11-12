@@ -1,21 +1,32 @@
 <script lang="ts">
 	import { ArrowLeft, ChevronRight, Settings } from '@lucide/svelte';
+	import { page } from '$app/state';
+	import MobileNav from '#lib/components/MobileNav.svelte';
+	import { session } from '#lib/session';
 
 	let { children } = $props();
 
-	const sections = [
+	const sections = $derived([
 		{ label: 'Account', href: '/settings/account', description: 'Identity and sign-out' },
 		{ label: 'Security', href: '/settings/security', description: 'Password and access' },
 		{ label: 'Sessions', href: '/settings/sessions', description: 'Active sign-ins' },
-		{ label: 'Administration', href: '/settings/users', description: 'Manage users' }
-	];
+		...(session.isAdmin
+			? [{ label: 'Administration', href: '/settings/users', description: 'Manage users' }]
+			: [])
+	]);
+
+	const path = $derived(page.url.pathname);
+
+	function isActive(href: string): boolean {
+		return path === href || path.startsWith(`${href}/`);
+	}
 </script>
 
 <svelte:head><title>Settings · Saefr Photos</title></svelte:head>
 
 <div class="settings-shell">
 	<header class="settings-header">
-		<a class="back-link" href="/" aria-label="Back to photos"><ArrowLeft size={17} /> <span>Photos</span></a>
+		<a class="back-link" href="/photos" aria-label="Back to photos"><ArrowLeft size={17} /> <span>Photos</span></a>
 		<div class="settings-title"><Settings size={19} aria-hidden="true" /> <h1>Settings</h1></div>
 	</header>
 
@@ -23,7 +34,12 @@
 		<nav class="settings-nav" aria-label="Settings sections">
 			<p class="eyebrow">Settings</p>
 			{#each sections as section}
-				<a href={section.href} class="settings-link" aria-current={undefined}>
+				<a
+					href={section.href}
+					class="settings-link"
+					class:active={isActive(section.href)}
+					aria-current={isActive(section.href) ? 'page' : undefined}
+				>
 					<span>{section.label}</span>
 					<ChevronRight size={16} aria-hidden="true" />
 					<small>{section.description}</small>
@@ -34,6 +50,7 @@
 			{@render children()}
 		</main>
 	</div>
+	<MobileNav active="settings" />
 </div>
 
 <style>
@@ -47,12 +64,14 @@
 	.settings-nav { display: flex; flex-direction: column; gap: 4px; }
 	.eyebrow { margin: 0 0 12px; color: var(--color-text-disabled); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
 	.settings-link { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; min-height: 48px; padding: 8px 0; color: var(--color-text-secondary); text-decoration: none; }
-	.settings-link:hover, .settings-link:focus-visible { color: var(--color-text-primary); }
+	.settings-link:hover, .settings-link:focus-visible, .settings-link.active { color: var(--color-text-primary); }
+	.settings-link.active span { font-weight: 500; }
 	.settings-link small { grid-column: 1 / -1; color: var(--color-text-disabled); font-size: 12px; }
+	.settings-link.active small { color: var(--color-text-secondary); }
 	.settings-main { min-width: 0; }
 	@media (max-width: 899px) { .settings-shell { padding-inline: 16px; } .settings-layout { grid-template-columns: 68px minmax(0, 1fr); gap: 32px; } .settings-link small { display: none; } .settings-link span { font-size: 0; } .settings-link span::first-letter { font-size: 14px; } }
 	@media (max-width: 599px) {
-		.settings-shell { padding: 0 12px calc(32px + env(safe-area-inset-bottom)); }
+		.settings-shell { padding: 0 12px calc(88px + env(safe-area-inset-bottom)); }
 		.settings-header { min-height: 64px; }
 		.settings-title h1 { font-size: 20px; }
 		.settings-layout { display: block; margin-top: 20px; }
