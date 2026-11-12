@@ -18,12 +18,24 @@ export {
 	logoutAll,
 	revokeSession
 } from './auth';
-export { request } from './transport';
+export {
+	assetOriginalPath,
+	assetThumbnailPath,
+	fetchAssetOriginal,
+	getAsset,
+	listAssets
+} from './assets';
+export type { ListAssetsOptions } from './assets';
+export { request, requestBlob } from './transport';
 export type { RequestOptions } from './transport';
 export type {
 	ApiError,
 	ApiErrorEnvelope,
 	ApiErrorKind,
+	Asset,
+	AssetMimeType,
+	AssetPage,
+	AssetPageItem,
 	AuthenticatedUser,
 	LoginResponse,
 	MeResponse,

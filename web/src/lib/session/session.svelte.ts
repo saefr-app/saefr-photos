@@ -241,6 +241,15 @@ export async function revokeSession(id: string): Promise<RevokeResult> {
 	}
 }
 
+/**
+ * Local-only session expiry after a protected request returns 401. The cookie
+ * is HttpOnly, so the client cannot clear it; `SessionGate` remains the single
+ * redirect authority and sends the user to sign in.
+ */
+export function expire(): void {
+	reset();
+}
+
 export const session = {
 	get state(): SessionState {
 		return state;
@@ -256,6 +265,7 @@ export const session = {
 	},
 	bootstrap,
 	retryBootstrap,
+	expire,
 	signIn,
 	signOut,
 	signOutAll,

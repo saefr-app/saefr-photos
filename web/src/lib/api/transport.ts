@@ -70,3 +70,36 @@ export async function request<T>(
 	const text = await response.text();
 	return parseJson(text) as T;
 }
+
+/**
+ * GET binary media with the same rules as `request`: same-origin credentials,
+ * no browser cache, no retries and no CSRF. The body is never parsed as JSON.
+ */
+export async function requestBlob(path: string): Promise<Blob> {
+	let response: Response;
+	try {
+		response = await fetch(path, {
+			method: 'GET',
+			credentials: 'same-origin',
+			cache: 'no-store'
+		});
+	} catch {
+		throw new ApiRequestError({
+			status: 0,
+			message: statusMessage(0),
+			kind: 'network'
+		});
+	}
+
+	if (!response.ok) throw new ApiRequestError(apiErrorForResponse(response));
+
+	try {
+		return await response.blob();
+	} catch {
+		throw new ApiRequestError({
+			status: 0,
+			message: statusMessage(0),
+			kind: 'network'
+		});
+	}
+}
