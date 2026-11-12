@@ -128,7 +128,7 @@
 		<div class="state">
 			<ImageIcon size={26} aria-hidden="true" />
 			<h2>No photos yet</h2>
-			<p>Photos you upload will appear here.</p>
+			<p>Photos in this library will appear here.</p>
 		</div>
 	{:else}
 		{#each groups as group (group.key)}

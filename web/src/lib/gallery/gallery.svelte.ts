@@ -151,6 +151,12 @@ async function reload(): Promise<void> {
 	await loadFirstPage();
 }
 
+/** Drops a photo that the viewer learned is no longer owner-visible. */
+function removeItem(id: string): void {
+	ensureOwner();
+	items = items.filter((item) => item.id !== id);
+}
+
 function recordScroll(y: number): void {
 	ensureOwner();
 	if (returningFromGallery) return;
@@ -211,6 +217,7 @@ export const gallery = {
 	loadFirstPage,
 	loadMore,
 	reload,
+	removeItem,
 	recordScroll,
 	markOpenedFromGallery,
 	consumeReturnedFromGallery

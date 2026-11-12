@@ -94,6 +94,7 @@
 			// Invalid UUID (`400`) and owner-scoped missing/trashed (`404`) both
 			// mean there is no photo to show. Never fall back to a fixture.
 			if (api.status === 400 || api.status === 404) {
+				gallery.removeItem(id);
 				asset = null;
 				loadStatus = 'not-found';
 				return;
