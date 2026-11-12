@@ -1,3 +1,4 @@
+import { removeJournalFiles } from './asset-deletion-steps.js';
 import { Injectable } from '@nestjs/common';
 import { performance } from 'node:perf_hooks';
 
@@ -116,56 +117,60 @@ export class AssetDeletionExecutor {
         return this.fail(assetId, ownerId, token, 'storage_identity_mismatch');
       if (!this.canStart(deadline, signal)) return 'pending';
 
-      for (const role of ['originals', 'thumbnails'] as const) {
-        if (
-          !(await this.mayContinue(assetId, ownerId, token, deadline, signal))
-        )
-          return 'pending';
-        if (!(await this.authorityStillMatches(current)))
-          return this.fail(
-            assetId,
-            ownerId,
-            token,
-            'storage_identity_mismatch',
-          );
-        // No await may separate this check from the provider dispatch.
-        if (!this.canStart(deadline, signal)) return 'pending';
+      const stopped = await removeJournalFiles<DeletionExecutionResult>({
+        remove: async (role) => {
+          if (
+            !(await this.mayContinue(assetId, ownerId, token, deadline, signal))
+          )
+            return 'pending';
+          if (!(await this.authorityStillMatches(current)))
+            return this.fail(
+              assetId,
+              ownerId,
+              token,
+              'storage_identity_mismatch',
+            );
+          // No await may separate this check from the provider dispatch.
+          if (!this.canStart(deadline, signal)) return 'pending';
 
-        const outcome = await this.storage.removeExact(
-          {
+          const outcome = await this.storage.removeExact(
+            {
+              role,
+              assetId: current.asset_id,
+              extension:
+                role === 'originals'
+                  ? (current.original_extension as '.jpg' | '.png' | '.webp')
+                  : '.jpg',
+            },
+            current,
+          );
+          if (!outcome.durable)
+            return this.fail(
+              assetId,
+              ownerId,
+              token,
+              outcome.status === 'uncertain'
+                ? 'unknown_outcome'
+                : 'storage_unavailable',
+            );
+        },
+        persist: async (role) => {
+          // The provider fsyncs the pinned directory before returning. Confirm
+          // persistence again under the same role's verified binding.
+          if (
+            !(await this.mayContinue(assetId, ownerId, token, deadline, signal))
+          )
+            return 'pending';
+          if (!this.canStart(deadline, signal)) return 'pending';
+          const persistence = await this.storage.confirmDirectoryPersistence(
             role,
-            assetId: current.asset_id,
-            extension:
-              role === 'originals'
-                ? (current.original_extension as '.jpg' | '.png' | '.webp')
-                : '.jpg',
-          },
-          current,
-        );
-        if (!outcome.durable)
-          return this.fail(
-            assetId,
-            ownerId,
-            token,
-            outcome.status === 'uncertain'
-              ? 'unknown_outcome'
-              : 'storage_unavailable',
+            current,
           );
-
-        // The provider fsyncs the pinned directory before returning. Confirm
-        // persistence again under the same role's verified binding.
-        if (
-          !(await this.mayContinue(assetId, ownerId, token, deadline, signal))
-        )
-          return 'pending';
-        if (!this.canStart(deadline, signal)) return 'pending';
-        const persistence = await this.storage.confirmDirectoryPersistence(
-          role,
-          current,
-        );
-        if (persistence.status !== 'durable')
-          return this.fail(assetId, ownerId, token, 'durability_unavailable');
-      }
+          if (persistence.status !== 'durable')
+            return this.fail(assetId, ownerId, token, 'durability_unavailable');
+        },
+      });
+      if (stopped !== undefined) return stopped;
 
       if (!(await this.mayContinue(assetId, ownerId, token, deadline, signal)))
         return 'pending';
