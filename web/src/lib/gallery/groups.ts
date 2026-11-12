@@ -42,10 +42,10 @@ export function groupAssetsByMonth(
 }
 
 /** Appends server-ordered items and drops duplicate ids on both sides. */
-export function mergeAssetPage(
-	existing: readonly AssetPageItem[],
-	incoming: readonly AssetPageItem[]
-): AssetPageItem[] {
+export function mergeAssetPage<T extends AssetPageItem>(
+	existing: readonly T[],
+	incoming: readonly T[]
+): T[] {
 	const seen = new Set(existing.map((item) => item.id));
 	const merged = [...existing];
 

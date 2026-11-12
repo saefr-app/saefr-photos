@@ -2,6 +2,7 @@
 	import './layout.css';
 	import { onMount } from 'svelte';
 	import SessionGate from '#lib/components/SessionGate.svelte';
+	import ToastHost from '#lib/components/ToastHost.svelte';
 	import { session } from '#lib/session';
 
 	let { children } = $props();
@@ -12,3 +13,4 @@
 </script>
 
 <SessionGate>{@render children()}</SessionGate>
+<ToastHost />

@@ -31,6 +31,32 @@ export interface SessionInfo {
 	current: boolean;
 }
 
+export type UserStatus = 'active' | 'disabled';
+
+/**
+ * Public administrator-facing user record. It deliberately excludes any
+ * credential material and mirrors the fields the backend returns.
+ */
+export interface AdminUser {
+	id: string;
+	username: string;
+	role: Role;
+	status: UserStatus;
+	passwordChangeRequired: boolean;
+	createdAt: string;
+	updatedAt: string;
+}
+
+/**
+ * The backend's paged envelope for `GET /api/v1/users`. There is no total
+ * count; callers page with `limit`/`offset`.
+ */
+export interface AdminUserPage {
+	items: AdminUser[];
+	limit: number;
+	offset: number;
+}
+
 /** Formats the backend accepts and reports for stored photos. */
 export type AssetMimeType = 'image/jpeg' | 'image/png' | 'image/webp';
 
@@ -52,6 +78,67 @@ export interface AssetPageItem extends Asset {
 export interface AssetPage {
 	items: AssetPageItem[];
 	next_cursor: string | null;
+}
+
+/** `GET /api/v1/assets/trash` item: an active-page item plus its Trash time. */
+export interface TrashPageItem extends AssetPageItem {
+	trashed_at: string;
+}
+
+/** `GET /api/v1/assets/trash` body. */
+export interface TrashPage {
+	items: TrashPageItem[];
+	next_cursor: string | null;
+}
+
+/** `POST /:id/trash` and `POST /:id/restore` body. */
+export interface LifecycleTransition {
+	id: string;
+	state: 'active' | 'trashed';
+	trashed_at: string | null;
+	lifecycle_version: string;
+}
+
+/** Owner-scoped permanent-deletion receipt. Never contains storage internals. */
+export interface DeletionReceipt {
+	asset_id: string;
+	status: 'pending' | 'completed';
+	requested_at: string;
+	completed_at: string | null;
+	last_error_code: string | null;
+}
+
+/** `GET /api/v1/assets/deletions` body. Pending receipts only. */
+export interface DeletionPage {
+	items: DeletionReceipt[];
+	next_cursor: string | null;
+}
+
+/** Transport metadata that lifecycle callers need but normal JSON calls ignore. */
+export interface ResponseMeta {
+	status: number;
+	/** Strong ETag only when the server supplied one. */
+	etag: string | null;
+	location: string | null;
+}
+
+export interface DetailedResponse<T> extends ResponseMeta {
+	data: T;
+}
+
+/** Result of a Trash/Restore mutation, including the fresh version for Undo. */
+export interface LifecycleMutationResult {
+	transition: LifecycleTransition;
+	etag: string | null;
+	status: number;
+}
+
+/** Result of `DELETE /api/v1/assets/:id` (200 completed or 202 pending). */
+export interface DeletionAttempt {
+	receipt: DeletionReceipt | null;
+	status: number;
+	location: string | null;
+	etag: string | null;
 }
 
 /** Sanitized error envelope documented by the backend. */
